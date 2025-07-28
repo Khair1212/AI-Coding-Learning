@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+venv/
+.env
+
+# Claude
+.claude.md
+.claude/
+
+# React/Node.js
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/coverage/
+
+# OS
+.DS_Store
+
+# Dependencies
+node_modules/
