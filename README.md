@@ -1,10 +1,10 @@
 # AI Coding Learner 🚀
 
-A Duolingo-style interactive platform for learning C programming with AI-powered questions and gamification.
+A Duolingo-style interactive platform for learning C programming with AI-powered questions and gamification. 
 
 ## Features ✨
 
-- **10 Progressive Levels** of C programming (Hello World → Pointers & Memory)
+- **10 Progressive Levels** of C programming (Hello World → Pointers & Memory) 
 - **Interactive Learning** with multiple question types:
   - Multiple choice questions
   - Coding exercises
@@ -17,6 +17,7 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 ## Tech Stack 🛠️
 
 **Backend:**
+
 - FastAPI (Python)
 - SQLAlchemy ORM
 - PostgreSQL/SQLite
@@ -24,6 +25,7 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 - JWT Authentication
 
 **Frontend:**
+
 - React 19 with TypeScript
 - React Router
 - Axios for API calls
@@ -32,6 +34,7 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 ## Quick Setup 🚀
 
 ### Prerequisites
+
 - Python 3.11+
 - Node.js 16+
 - OpenAI API key (optional, for AI features)
@@ -39,33 +42,34 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 ### Backend Setup
 
 1. **Navigate to backend directory:**
+
    ```bash
    cd backend
    ```
-
 2. **Create and activate virtual environment:**
+
    ```bash
    python3 -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
-
 3. **Install dependencies:**
+
    ```bash
    pip install -r requirements.txt
    ```
-
 4. **Create environment file:**
+
    ```bash
    cp .env.example .env
    # Edit .env with your settings
    ```
-
 5. **Initialize database:**
+
    ```bash
    python setup_database.py
    ```
-
 6. **Start the server:**
+
    ```bash
    uvicorn app.main:app --reload
    ```
@@ -75,16 +79,17 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 ### Frontend Setup
 
 1. **Navigate to frontend directory:**
+
    ```bash
    cd frontend
    ```
-
 2. **Install dependencies:**
+
    ```bash
    npm install
    ```
-
 3. **Start the development server:**
+
    ```bash
    npm start
    ```
@@ -119,6 +124,7 @@ OPENAI_API_KEY=your-openai-api-key-here
 ## API Documentation 📖
 
 Once the backend is running, visit:
+
 - **Swagger UI**: `http://localhost:8000/docs`
 - **ReDoc**: `http://localhost:8000/redoc`
 
@@ -150,6 +156,7 @@ This project is licensed under the MIT License.
 ## Support 💡
 
 If you encounter any issues:
+
 1. Check the console logs (both frontend and backend)
 2. Ensure all dependencies are installed
 3. Verify environment variables are set correctly
