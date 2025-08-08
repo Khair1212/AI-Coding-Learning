@@ -78,6 +78,13 @@ export interface SubmissionResult {
   correct: boolean;
   explanation: string;
   xp_earned: number;
+  lesson_progress?: {
+    score: number;
+    is_completed: boolean;
+    correct_count: number;
+    total_questions: number;
+    coding_required_passed: boolean;
+  };
 }
 
 export const learningAPI = {

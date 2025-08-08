@@ -53,7 +53,7 @@ class LessonResponse(BaseModel):
     difficulty: DifficultyLevel
     xp_reward: int
     is_completed: Optional[bool] = False
-    score: Optional[float] = 0.0
+    score: Optional[float] = None
 
     class Config:
         from_attributes = True

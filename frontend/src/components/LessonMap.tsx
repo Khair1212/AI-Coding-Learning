@@ -289,14 +289,24 @@ const LessonMap: React.FC = () => {
                 <div style={lessonTypeStyle}>
                   {lesson.lesson_type.replace('_', ' ')} • {lesson.xp_reward} XP
                 </div>
-                {lesson.is_completed && (
+                {lesson.score !== undefined && lesson.score !== null && (
                   <div style={{ 
                     fontSize: '12px', 
-                    color: '#28a745', 
                     marginTop: '4px',
                     fontWeight: '600'
                   }}>
-                    Score: {lesson.score?.toFixed(0)}%
+                    <div style={{ 
+                      color: lesson.is_completed ? '#28a745' : lesson.score >= 70 ? '#ffc107' : '#dc3545'
+                    }}>
+                      Score: {Math.round(lesson.score || 0)}%
+                    </div>
+                    <div style={{ 
+                      fontSize: '11px',
+                      color: lesson.is_completed ? '#28a745' : '#dc3545',
+                      marginTop: '2px'
+                    }}>
+                      {lesson.is_completed ? '✅ PASSED' : '❌ FAILED'}
+                    </div>
                   </div>
                 )}
               </div>

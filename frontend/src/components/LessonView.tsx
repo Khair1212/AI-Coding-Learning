@@ -12,8 +12,18 @@ const LessonView: React.FC = () => {
   const [userAnswer, setUserAnswer] = useState('');
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [lessonProgress, setLessonProgress] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  
+  // Session-based progress tracking (for current test session only)
+  const [sessionAnswers, setSessionAnswers] = useState<{[questionId: number]: {answer: string, isCorrect: boolean}}>({});
+  const [sessionProgress, setSessionProgress] = useState<{score: number, correctCount: number, totalQuestions: number, codingCorrect: boolean}>({
+    score: 0,
+    correctCount: 0,
+    totalQuestions: 0,
+    codingCorrect: true
+  });
 
   useEffect(() => {
     if (lessonId) {
@@ -25,6 +35,16 @@ const LessonView: React.FC = () => {
     try {
       const questionsData = await learningAPI.getLessonQuestions(lessonId);
       setQuestions(questionsData);
+      
+      // Initialize session progress
+      setSessionProgress({
+        score: 0,
+        correctCount: 0,
+        totalQuestions: questionsData.length,
+        codingCorrect: true
+      });
+      setSessionAnswers({});
+      
     } catch (error) {
       console.error('Error fetching questions:', error);
     } finally {
@@ -37,13 +57,45 @@ const LessonView: React.FC = () => {
 
     setSubmitting(true);
     try {
+      const currentQuestion = questions[currentQuestionIndex];
       const submission = {
-        question_id: questions[currentQuestionIndex].id,
-        answer: userAnswer
+        question_id: currentQuestion.id,
+        answer: userAnswer.trim()
       };
       
       const submissionResult = await learningAPI.submitAnswer(submission);
       setResult(submissionResult);
+      setLessonProgress(submissionResult.lesson_progress);
+      
+      // Update session progress tracking
+      const isCorrect = submissionResult.correct;
+      setSessionAnswers(prev => ({
+        ...prev,
+        [currentQuestion.id]: { answer: userAnswer.trim(), isCorrect }
+      }));
+      
+      // Calculate session progress
+      const updatedAnswers = {
+        ...sessionAnswers,
+        [currentQuestion.id]: { answer: userAnswer.trim(), isCorrect }
+      };
+      
+      const sessionCorrectCount = Object.values(updatedAnswers).filter(ans => ans.isCorrect).length;
+      const sessionScore = (sessionCorrectCount / questions.length) * 100;
+      
+      // Check if coding questions are correct in session
+      const codingQuestions = questions.filter(q => q.question_type === 'coding_exercise');
+      const sessionCodingCorrect = codingQuestions.every(cq => 
+        updatedAnswers[cq.id]?.isCorrect === true
+      );
+      
+      setSessionProgress({
+        score: sessionScore,
+        correctCount: sessionCorrectCount,
+        totalQuestions: questions.length,
+        codingCorrect: sessionCodingCorrect
+      });
+      
       setShowResult(true);
     } catch (error) {
       console.error('Error submitting answer:', error);
@@ -59,7 +111,7 @@ const LessonView: React.FC = () => {
       setShowResult(false);
       setResult(null);
     } else {
-      // Lesson completed
+      // All questions answered - go directly to dashboard without popup
       navigate('/dashboard');
     }
   };
@@ -308,11 +360,26 @@ const LessonView: React.FC = () => {
                 <p style={{ margin: '0 0 12px 0' }}>
                   {result.explanation}
                 </p>
-                {result.correct && result.xp_earned > 0 && (
-                  <p style={{ margin: 0, fontWeight: 'bold' }}>
-                    +{result.xp_earned} XP earned!
-                  </p>
-                )}
+                <div style={{ marginTop: '12px', padding: '8px', background: 'rgba(0,0,0,0.1)', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                    Current Session: {sessionProgress.correctCount}/{sessionProgress.totalQuestions} correct ({Math.round(sessionProgress.score)}%)
+                  </div>
+                  {!sessionProgress.codingCorrect && (
+                    <div style={{ fontSize: '12px', color: '#d63384' }}>
+                      ⚠️ All coding questions must be correct to complete
+                    </div>
+                  )}
+                  {sessionProgress.score < 70 && (
+                    <div style={{ fontSize: '12px', color: '#d63384' }}>
+                      ⚠️ Need 70% or higher to complete lesson
+                    </div>
+                  )}
+                  {sessionProgress.score >= 70 && sessionProgress.codingCorrect && (
+                    <div style={{ fontSize: '12px', color: '#198754', fontWeight: 'bold' }}>
+                      ✅ On track to complete!
+                    </div>
+                  )}
+                </div>
               </div>
               <div style={buttonContainerStyle}>
                 <Button
@@ -325,7 +392,7 @@ const LessonView: React.FC = () => {
                   variant="primary"
                   onClick={handleNextQuestion}
                 >
-                  {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Complete Lesson'}
+                  {currentQuestionIndex < questions.length - 1 ? 'Next Question' : 'Finish Lesson'}
                 </Button>
               </div>
             </>

@@ -7,7 +7,7 @@ from app.core.database import get_db
 from app.api.deps import get_current_user
 from app.models import (
     User, Level, Lesson, Question, UserProfile, UserLessonProgress, Achievement, UserAchievement,
-    Quiz, PersonalizedQuizAssignment, UserQuizAttempt, UserQuizResponse
+    Quiz, PersonalizedQuizAssignment, UserQuizAttempt, UserQuizResponse, UserLessonAnswer
 )
 from app.api.schemas import (
     LevelResponse, LessonResponse, QuestionResponse, QuestionSubmission,
@@ -77,7 +77,7 @@ def get_level_lessons(
         # Add progress info to lessons
         for lesson in lessons:
             progress = progress_map.get(lesson.id)
-            if progress:
+            if progress and progress.attempts > 0:  # Only show progress if actually attempted
                 lesson.is_completed = progress.is_completed
                 lesson.score = progress.score
     
@@ -104,7 +104,7 @@ def submit_answer(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
     
-    # Check if answer is correct
+    # Check if answer is correct (for coding exercises, simple exact match for now)
     is_correct = submission.answer.strip().lower() == question.correct_answer.strip().lower()
     
     # Get or create user profile
@@ -132,20 +132,54 @@ def submit_answer(
         db.add(lesson_progress)
     
     lesson_progress.attempts += 1
-    
+
+    # Track per-question results
+    answer_record = db.query(UserLessonAnswer).filter(
+        UserLessonAnswer.user_profile_id == profile.id,
+        UserLessonAnswer.lesson_id == question.lesson_id,
+        UserLessonAnswer.question_id == question.id
+    ).first()
+
+    if not answer_record:
+        answer_record = UserLessonAnswer(
+            user_profile_id=profile.id,
+            lesson_id=question.lesson_id,
+            question_id=question.id,
+            is_correct=is_correct,
+            attempts=1
+        )
+        db.add(answer_record)
+    else:
+        answer_record.is_correct = is_correct or answer_record.is_correct
+        answer_record.attempts = (answer_record.attempts or 0) + 1
+
+    # Completion threshold logic
+    # Require at least 70% correct across lesson questions AND all coding_exercise questions correct
+    lesson_questions = db.query(Question).filter(Question.lesson_id == question.lesson_id).all()
+    records = db.query(UserLessonAnswer).filter(
+        UserLessonAnswer.user_profile_id == profile.id,
+        UserLessonAnswer.lesson_id == question.lesson_id
+    ).all()
+
+    total_q = len(lesson_questions)
+    correct_count = len([r for r in records if r.is_correct])
+    percent_correct = (correct_count / total_q) if total_q > 0 else 0.0
+
+    # Ensure all coding questions are correct before completion
+    coding_q_ids = {q.id for q in lesson_questions if q.question_type.value == 'coding_exercise'}
+    coding_correct_ids = {r.question_id for r in records if r.is_correct}
+    all_coding_correct = coding_q_ids.issubset(coding_correct_ids)
+
+    # Pass threshold
+    passed_threshold = percent_correct >= 0.7 and all_coding_correct
+
     if is_correct:
-        # Award XP and update progress
+        # Award XP on first time completion only
         lesson = db.query(Lesson).filter(Lesson.id == question.lesson_id).first()
         xp_reward = lesson.xp_reward if lesson else 10
         
-        lesson_progress.xp_earned += xp_reward
-        lesson_progress.score = 100.0  # Perfect score for correct answer
-        lesson_progress.is_completed = True
-        lesson_progress.completed_at = datetime.now()
-        
-        # Update user profile
+        # Update user profile XP incrementally on correct answers
         profile.total_xp += xp_reward
-        profile.lessons_completed += 1
         profile.last_activity_date = datetime.now()
         
         # Update streak
@@ -156,13 +190,28 @@ def submit_answer(
         
         if profile.current_streak > profile.longest_streak:
             profile.longest_streak = profile.current_streak
+
+    # Update lesson_progress aggregate fields
+    lesson_progress.score = round(percent_correct * 100.0, 1)
+    if passed_threshold:
+        if not lesson_progress.is_completed:
+            profile.lessons_completed += 1
+        lesson_progress.is_completed = True
+        lesson_progress.completed_at = datetime.now()
     
     db.commit()
     
     return {
         "correct": is_correct,
         "explanation": question.explanation,
-        "xp_earned": lesson_progress.xp_earned if is_correct else 0
+        "xp_earned": 0,
+        "lesson_progress": {
+            "score": lesson_progress.score,
+            "is_completed": lesson_progress.is_completed,
+            "correct_count": correct_count,
+            "total_questions": total_q,
+            "coding_required_passed": all_coding_correct
+        }
     }
 
 @router.get("/achievements", response_model=List[AchievementResponse])

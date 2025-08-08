@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { theme } from '../styles/theme';
-import { adminAPI, AdminStats, AdminUser, LevelWithLessons, AdminQuestion, CreateQuestionRequest } from '../api/admin';
+import { adminAPI, AdminStats, AdminUser, LevelWithLessons, AdminQuestion, CreateQuestionRequest, Achievement } from '../api/admin';
 import Button from './common/Button';
 import AddQuestionModal from './AddQuestionModal';
 import QuestionDetailsModal from './QuestionDetailsModal';
@@ -31,6 +31,8 @@ const AdminDashboard: React.FC = () => {
     explanation: '',
     code_template: ''
   });
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
 
   useEffect(() => {
     loadStats();
@@ -41,6 +43,8 @@ const AdminDashboard: React.FC = () => {
       loadUsers();
     } else if (activeTab === 'content') {
       loadLevels();
+    } else if (activeTab === 'analytics') {
+      loadAnalytics();
     }
   }, [activeTab]);
 
@@ -74,6 +78,21 @@ const AdminDashboard: React.FC = () => {
       console.error('Error loading levels:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAnalytics = async () => {
+    try {
+      setAnalyticsLoading(true);
+      if (!stats) {
+        await loadStats();
+      }
+      const ach = await adminAPI.getAchievements();
+      setAchievements(ach);
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    } finally {
+      setAnalyticsLoading(false);
     }
   };
 
@@ -454,6 +473,125 @@ const AdminDashboard: React.FC = () => {
     </div>
   );
 
+  const renderAnalytics = () => {
+    // Build last 7-day registration counts from stats
+    const days = Array.from({ length: 7 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (6 - i));
+      d.setHours(0, 0, 0, 0);
+      return d;
+    });
+    const regCounts = (stats?.recent_registrations || []).reduce<Record<string, number>>((acc, user) => {
+      if (!user.created_at) return acc;
+      const d = new Date(user.created_at);
+      d.setHours(0, 0, 0, 0);
+      const key = d.toISOString();
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    const series = days.map((d) => ({
+      label: `${d.getMonth() + 1}/${d.getDate()}`,
+      value: regCounts[d.toISOString()] || 0
+    }));
+    const maxReg = Math.max(1, ...series.map(s => s.value));
+
+    const maxLevelCompletions = Math.max(1, ...((stats?.popular_levels || []).map(l => l.completions)));
+    const maxAchieved = Math.max(1, ...(achievements.map(a => a.times_earned)));
+
+    return (
+      <div>
+        {analyticsLoading && (
+          <div style={{ textAlign: 'center', padding: '40px' }}>Loading analytics...</div>
+        )}
+        {!analyticsLoading && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <div style={cardStyle}>
+              <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Registrations (last 7 days)</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '8px', alignItems: 'end', height: '120px' }}>
+                {series.map((pt, idx) => (
+                  <div key={idx} style={{ textAlign: 'center' }}>
+                    <div style={{
+                      height: `${(pt.value / maxReg) * 100}%`,
+                      background: theme.colors.primary,
+                      borderRadius: theme.borderRadius.sm
+                    }} />
+                    <div style={{ fontSize: '12px', color: theme.colors.textSecondary, marginTop: '6px' }}>{pt.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={cardStyle}>
+              <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Popular Levels</h3>
+              {(stats?.popular_levels || []).map((lvl, idx) => (
+                <div key={idx} style={{ marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ color: theme.colors.text }}>Level {lvl.level}: {lvl.title}</span>
+                    <span style={{ color: theme.colors.textSecondary }}>{lvl.completions}</span>
+                  </div>
+                  <div style={{ background: theme.colors.surfaceHover, borderRadius: theme.borderRadius.sm, height: '8px' }}>
+                    <div style={{
+                      width: `${(lvl.completions / maxLevelCompletions) * 100}%`,
+                      background: theme.colors.primary,
+                      height: '100%',
+                      borderRadius: theme.borderRadius.sm
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={cardStyle}>
+              <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Achievements Earned</h3>
+              {achievements.length === 0 ? (
+                <div style={{ color: theme.colors.textSecondary }}>No achievements data</div>
+              ) : (
+                achievements.map((a) => (
+                  <div key={a.id} style={{ marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ color: theme.colors.text }}>{a.name}</span>
+                      <span style={{ color: theme.colors.textSecondary }}>{a.times_earned}</span>
+                    </div>
+                    <div style={{ background: theme.colors.surfaceHover, borderRadius: theme.borderRadius.sm, height: '8px' }}>
+                      <div style={{
+                        width: `${(a.times_earned / maxAchieved) * 100}%`,
+                        background: theme.colors.secondary,
+                        height: '100%',
+                        borderRadius: theme.borderRadius.sm
+                      }} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={cardStyle}>
+              <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Key Metrics</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(120px, 1fr))', gap: '12px' }}>
+                <div style={statCardStyle}>
+                  <div style={statNumberStyle}>{stats?.average_accuracy ?? 0}%</div>
+                  <div style={statLabelStyle}>Avg Accuracy</div>
+                </div>
+                <div style={statCardStyle}>
+                  <div style={statNumberStyle}>{stats?.total_assessments ?? 0}</div>
+                  <div style={statLabelStyle}>Assessments</div>
+                </div>
+                <div style={statCardStyle}>
+                  <div style={statNumberStyle}>{stats?.total_users ?? 0}</div>
+                  <div style={statLabelStyle}>Users</div>
+                </div>
+                <div style={statCardStyle}>
+                  <div style={statNumberStyle}>{stats?.active_users ?? 0}</div>
+                  <div style={statLabelStyle}>Active Users</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
 
   return (
     <div style={containerStyle}>
@@ -483,12 +621,7 @@ const AdminDashboard: React.FC = () => {
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'users' && renderUsers()}
         {activeTab === 'content' && renderContent()}
-        {activeTab === 'analytics' && (
-          <div style={cardStyle}>
-            <h2>Advanced Analytics</h2>
-            <p>Coming soon - detailed analytics and reporting features</p>
-          </div>
-        )}
+        {activeTab === 'analytics' && renderAnalytics()}
       </div>
 
       <AddQuestionModal
