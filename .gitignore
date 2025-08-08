@@ -3,9 +3,11 @@ __pycache__/
 venv/
 .env
 
+
 # Claude
 .claude.md
 .claude/
+CLAUDE.md
 
 # React/Node.js
 frontend/node_modules/

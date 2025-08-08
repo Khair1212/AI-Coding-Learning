@@ -5,13 +5,17 @@ from datetime import datetime, date, timedelta
 
 from app.core.database import get_db
 from app.api.deps import get_current_user
-from app.models import User, Level, Lesson, Question, UserProfile, UserLessonProgress, Achievement, UserAchievement
+from app.models import (
+    User, Level, Lesson, Question, UserProfile, UserLessonProgress, Achievement, UserAchievement,
+    Quiz, PersonalizedQuizAssignment, UserQuizAttempt, UserQuizResponse
+)
 from app.api.schemas import (
     LevelResponse, LessonResponse, QuestionResponse, QuestionSubmission,
     UserProfileResponse, LessonProgressResponse, AchievementResponse,
     GenerateQuestionRequest
 )
 from app.services.ai_service import AIQuestionGenerator, LessonContentGenerator
+from app.services.quiz_assignment_service import IntelligentQuizAssignmentService
 
 router = APIRouter()
 ai_generator = AIQuestionGenerator()
@@ -235,4 +239,230 @@ def get_progress_stats(
             }
             for level in db.query(Level).filter(Level.is_active == True).all()
         }
+    }
+
+@router.get("/personalized-quizzes")
+def get_personalized_quizzes(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get personalized quizzes assigned to the current user"""
+    assignment_service = IntelligentQuizAssignmentService(db)
+    assignments = assignment_service.get_user_assigned_quizzes(current_user.id)
+    
+    if not assignments:
+        # If no assignments exist, create them based on skill assessment
+        assignments = assignment_service.assign_personalized_quizzes_for_user(current_user.id)
+    
+    return {
+        "assignments": assignments,
+        "message": "Personalized quizzes based on your skill assessment and learning progress"
+    }
+
+@router.post("/refresh-quiz-assignments")
+def refresh_quiz_assignments(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Refresh personalized quiz assignments based on current skill level"""
+    assignment_service = IntelligentQuizAssignmentService(db)
+    assignments = assignment_service.assign_personalized_quizzes_for_user(current_user.id)
+    
+    return {
+        "message": "Quiz assignments refreshed",
+        "new_assignments": len(assignments)
+    }
+
+@router.get("/quiz/{quiz_id}/questions")
+def get_personalized_quiz_questions(
+    quiz_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get questions for a specific personalized quiz"""
+    
+    # Verify user has access to this quiz
+    assignment = db.query(PersonalizedQuizAssignment).filter(
+        PersonalizedQuizAssignment.user_id == current_user.id,
+        PersonalizedQuizAssignment.quiz_id == quiz_id,
+        PersonalizedQuizAssignment.is_active == True
+    ).first()
+    
+    if not assignment:
+        raise HTTPException(status_code=403, detail="Quiz not assigned to user")
+    
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    
+    # Get quiz questions (randomized if enabled)
+    questions = quiz.questions
+    if quiz.randomize_questions:
+        import random
+        questions = random.sample(questions, min(len(questions), quiz.question_count))
+    else:
+        questions = questions[:quiz.question_count]
+    
+    # Check if user has already started this quiz
+    existing_attempt = db.query(UserQuizAttempt).filter(
+        UserQuizAttempt.user_id == current_user.id,
+        UserQuizAttempt.quiz_id == quiz_id,
+        UserQuizAttempt.is_completed == False
+    ).first()
+    
+    if existing_attempt:
+        attempt_id = existing_attempt.id
+    else:
+        # Create new quiz attempt
+        new_attempt = UserQuizAttempt(
+            user_id=current_user.id,
+            quiz_id=quiz_id,
+            assignment_id=assignment.id,
+            total_questions=len(questions)
+        )
+        db.add(new_attempt)
+        db.commit()
+        db.refresh(new_attempt)
+        attempt_id = new_attempt.id
+    
+    return {
+        "quiz": {
+            "id": quiz.id,
+            "title": quiz.title,
+            "description": quiz.description,
+            "estimated_time_minutes": quiz.estimated_time_minutes,
+            "time_limit_minutes": quiz.time_limit_minutes,
+            "question_count": len(questions)
+        },
+        "attempt_id": attempt_id,
+        "questions": [{
+            "id": q.id,
+            "question_text": q.question_text,
+            "question_type": q.question_type.value,
+            "options": q.options,
+            "code_template": q.code_template
+        } for q in questions]
+    }
+
+@router.post("/quiz/submit-response")
+def submit_quiz_response(
+    quiz_attempt_id: int,
+    question_id: int,
+    answer: str,
+    confidence_level: int = 3,
+    time_taken_seconds: float = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Submit a response to a quiz question"""
+    
+    # Verify quiz attempt belongs to user
+    attempt = db.query(UserQuizAttempt).filter(
+        UserQuizAttempt.id == quiz_attempt_id,
+        UserQuizAttempt.user_id == current_user.id
+    ).first()
+    
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Quiz attempt not found")
+    
+    question = db.query(Question).filter(Question.id == question_id).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    
+    # Check if answer is correct
+    is_correct = answer.strip().lower() == question.correct_answer.strip().lower()
+    
+    # Store response
+    response = UserQuizResponse(
+        quiz_attempt_id=quiz_attempt_id,
+        question_id=question_id,
+        user_answer=answer,
+        is_correct=is_correct,
+        time_taken_seconds=time_taken_seconds,
+        confidence_level=confidence_level,
+        skill_area=question.lesson.title  # Simplified skill area mapping
+    )
+    
+    db.add(response)
+    db.commit()
+    
+    return {
+        "correct": is_correct,
+        "explanation": question.explanation,
+        "response_id": response.id
+    }
+
+@router.post("/quiz/complete/{attempt_id}")
+def complete_quiz_attempt(
+    attempt_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Complete a quiz attempt and calculate results"""
+    
+    attempt = db.query(UserQuizAttempt).filter(
+        UserQuizAttempt.id == attempt_id,
+        UserQuizAttempt.user_id == current_user.id
+    ).first()
+    
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Quiz attempt not found")
+    
+    # Get all responses for this attempt
+    responses = db.query(UserQuizResponse).filter(
+        UserQuizResponse.quiz_attempt_id == attempt_id
+    ).all()
+    
+    if not responses:
+        raise HTTPException(status_code=400, detail="No responses found for this attempt")
+    
+    # Calculate results
+    correct_count = sum(1 for r in responses if r.is_correct)
+    accuracy = (correct_count / len(responses)) * 100
+    
+    # Calculate total time
+    total_time = sum(r.time_taken_seconds for r in responses if r.time_taken_seconds) / 60
+    
+    # Update attempt
+    attempt.completed_at = datetime.now()
+    attempt.correct_answers = correct_count
+    attempt.accuracy_percentage = accuracy
+    attempt.time_taken_minutes = total_time
+    attempt.is_completed = True
+    attempt.is_passed = accuracy >= 70  # Pass threshold
+    
+    # Update user profile and progress
+    profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
+    if profile:
+        # Award XP for completion
+        xp_reward = min(50, int(accuracy))  # Up to 50 XP based on accuracy
+        profile.total_xp += xp_reward
+        profile.last_activity_date = datetime.now()
+        
+        # Update accuracy rate
+        all_attempts = db.query(UserQuizAttempt).filter(
+            UserQuizAttempt.user_id == current_user.id,
+            UserQuizAttempt.is_completed == True
+        ).all()
+        
+        if all_attempts:
+            avg_accuracy = sum(a.accuracy_percentage for a in all_attempts) / len(all_attempts)
+            profile.accuracy_rate = avg_accuracy
+    
+    db.commit()
+    
+    # Trigger reassignment if user performance suggests they're ready for new challenges
+    if accuracy >= 85:  # High performance
+        assignment_service = IntelligentQuizAssignmentService(db)
+        assignment_service.assign_personalized_quizzes_for_user(current_user.id)
+    
+    return {
+        "attempt_id": attempt_id,
+        "total_questions": attempt.total_questions,
+        "correct_answers": correct_count,
+        "accuracy_percentage": accuracy,
+        "time_taken_minutes": total_time,
+        "is_passed": attempt.is_passed,
+        "xp_earned": xp_reward if profile else 0,
+        "message": "Great job!" if accuracy >= 70 else "Keep practicing!"
     }

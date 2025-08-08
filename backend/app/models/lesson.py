@@ -46,6 +46,7 @@ class Lesson(Base):
     level = relationship("Level", back_populates="lessons")
     questions = relationship("Question", back_populates="lesson")
     user_progress = relationship("UserLessonProgress", back_populates="lesson")
+    quizzes = relationship("Quiz", back_populates="lesson")
 
 class Question(Base):
     __tablename__ = "questions"
@@ -62,3 +63,4 @@ class Question(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     lesson = relationship("Lesson", back_populates="questions")
+    quizzes = relationship("Quiz", secondary="quiz_questions", back_populates="questions")

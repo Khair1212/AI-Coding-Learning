@@ -10,6 +10,7 @@ from app.models import (
     UserSkillProfile, SkillLevel, AdaptiveDifficultyLog
 )
 from app.services.adaptive_service import AdaptiveLearningService
+from app.services.quiz_assignment_service import IntelligentQuizAssignmentService
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -180,6 +181,10 @@ def submit_assessment(
     assessment.skill_level = skill_level
     
     db.commit()
+    
+    # Trigger personalized quiz assignment based on assessment results
+    quiz_service = IntelligentQuizAssignmentService(db)
+    quiz_assignments = quiz_service.reassign_quizzes_after_assessment(assessment.user_id, assessment.id)
     
     # Generate recommendations
     recommendations = _generate_recommendations(topic_performance, skill_level, calculated_level)
