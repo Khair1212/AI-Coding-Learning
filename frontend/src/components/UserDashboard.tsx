@@ -69,7 +69,7 @@ const UserDashboard: React.FC = () => {
     <div style={containerStyle}>
       <header style={headerStyle}>
         <div style={logoStyle}>
-          AI Coding Learner
+          AI Coding Learner Version 2
         </div>
         
         <nav style={navStyle}>

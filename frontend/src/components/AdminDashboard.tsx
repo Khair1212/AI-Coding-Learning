@@ -35,6 +35,8 @@ const AdminDashboard: React.FC = () => {
   const [analyticsLoading, setAnalyticsLoading] = useState<boolean>(false);
 
   useEffect(() => {
+    console.log('🏁 AdminDashboard mounted, current user:', user);
+    console.log('🔑 Current token:', localStorage.getItem('token') ? 'Present' : 'Missing');
     loadStats();
   }, []);
 
@@ -50,10 +52,32 @@ const AdminDashboard: React.FC = () => {
 
   const loadStats = async () => {
     try {
+      setLoading(true);
+      console.log('🔄 Loading admin stats...');
+      
+      // Check if user is authenticated
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.error('❌ No authentication token found');
+        setStats(null);
+        return;
+      }
+      
+      console.log('🔑 Token found, making API request...');
       const statsData = await adminAPI.getStats();
       setStats(statsData);
-    } catch (error) {
-      console.error('Error loading stats:', error);
+      console.log('✅ Stats loaded successfully:', statsData);
+    } catch (error: any) {
+      console.error('❌ Error loading stats:', {
+        message: error.message,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: error.config?.url
+      });
+      setStats(null); // Clear any stale data
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -89,8 +113,11 @@ const AdminDashboard: React.FC = () => {
       }
       const ach = await adminAPI.getAchievements();
       setAchievements(ach);
+      console.log('✅ Analytics loaded successfully, achievements:', ach);
     } catch (error) {
-      console.error('Error loading analytics:', error);
+      console.error('❌ Error loading analytics:', error);
+      // Set empty achievements array on error
+      setAchievements([]);
     } finally {
       setAnalyticsLoading(false);
     }
@@ -233,27 +260,31 @@ const AdminDashboard: React.FC = () => {
 
   const renderOverview = () => (
     <div>
-      {stats && (
+      {loading ? (
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          <div style={{ color: theme.colors.primary, fontSize: '18px' }}>Loading platform overview...</div>
+        </div>
+      ) : stats ? (
         <>
           <div style={statsGridStyle}>
             <div style={statCardStyle}>
-              <div style={statNumberStyle}>{stats.total_users}</div>
+              <div style={statNumberStyle}>{stats.total_users || 0}</div>
               <div style={statLabelStyle}>Total Users</div>
             </div>
             <div style={statCardStyle}>
-              <div style={statNumberStyle}>{stats.active_users}</div>
+              <div style={statNumberStyle}>{stats.active_users || 0}</div>
               <div style={statLabelStyle}>Active Users</div>
             </div>
             <div style={statCardStyle}>
-              <div style={statNumberStyle}>{stats.total_lessons_completed}</div>
+              <div style={statNumberStyle}>{stats.total_lessons_completed || 0}</div>
               <div style={statLabelStyle}>Lessons Completed</div>
             </div>
             <div style={statCardStyle}>
-              <div style={statNumberStyle}>{stats.total_assessments}</div>
+              <div style={statNumberStyle}>{stats.total_assessments || 0}</div>
               <div style={statLabelStyle}>Assessments Taken</div>
             </div>
             <div style={statCardStyle}>
-              <div style={statNumberStyle}>{stats.average_accuracy}%</div>
+              <div style={statNumberStyle}>{stats.average_accuracy || 0}%</div>
               <div style={statLabelStyle}>Average Accuracy</div>
             </div>
           </div>
@@ -261,56 +292,91 @@ const AdminDashboard: React.FC = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
             <div style={cardStyle}>
               <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Popular Levels</h3>
-              {stats.popular_levels.map((level, idx) => (
-                <div key={idx} style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  padding: '8px 0',
-                  borderBottom: idx < stats.popular_levels.length - 1 ? `1px solid ${theme.colors.border}` : 'none'
-                }}>
-                  <span style={{ color: theme.colors.text }}>
-                    Level {level.level}: {level.title}
-                  </span>
-                  <span style={{ 
-                    color: theme.colors.primary, 
-                    fontWeight: '600',
-                    background: theme.colors.primaryLight,
-                    padding: '4px 8px',
-                    borderRadius: theme.borderRadius.sm
+              {stats.popular_levels && stats.popular_levels.length > 0 ? (
+                stats.popular_levels.map((level, idx) => (
+                  <div key={idx} style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    padding: '8px 0',
+                    borderBottom: idx < stats.popular_levels.length - 1 ? `1px solid ${theme.colors.border}` : 'none'
                   }}>
-                    {level.completions}
-                  </span>
+                    <span style={{ color: theme.colors.text }}>
+                      Level {level.level}: {level.title}
+                    </span>
+                    <span style={{ 
+                      color: theme.colors.primary, 
+                      fontWeight: '600',
+                      background: theme.colors.primaryLight,
+                      padding: '4px 8px',
+                      borderRadius: theme.borderRadius.sm
+                    }}>
+                      {level.completions}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '20px', 
+                  color: theme.colors.textSecondary 
+                }}>
+                  No level completion data yet. Start by creating some lessons and encouraging users to complete them!
                 </div>
-              ))}
+              )}
             </div>
 
             <div style={cardStyle}>
               <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Recent Registrations</h3>
-              {stats.recent_registrations.slice(0, 5).map((user, idx) => (
-                <div key={idx} style={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
-                  alignItems: 'center',
-                  padding: '8px 0',
-                  borderBottom: idx < 4 ? `1px solid ${theme.colors.border}` : 'none'
+              {stats.recent_registrations && stats.recent_registrations.length > 0 ? (
+                stats.recent_registrations.slice(0, 5).map((user, idx) => (
+                  <div key={idx} style={{ 
+                    display: 'flex', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    padding: '8px 0',
+                    borderBottom: idx < 4 ? `1px solid ${theme.colors.border}` : 'none'
+                  }}>
+                    <div>
+                      <div style={{ color: theme.colors.text, fontWeight: '500' }}>
+                        {user.username}
+                      </div>
+                      <div style={{ color: theme.colors.textSecondary, fontSize: '14px' }}>
+                        {user.email}
+                      </div>
+                    </div>
+                    <div style={{ color: theme.colors.textSecondary, fontSize: '12px' }}>
+                      {new Date(user.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '20px', 
+                  color: theme.colors.textSecondary 
                 }}>
-                  <div>
-                    <div style={{ color: theme.colors.text, fontWeight: '500' }}>
-                      {user.username}
-                    </div>
-                    <div style={{ color: theme.colors.textSecondary, fontSize: '14px' }}>
-                      {user.email}
-                    </div>
-                  </div>
-                  <div style={{ color: theme.colors.textSecondary, fontSize: '12px' }}>
-                    {new Date(user.created_at).toLocaleDateString()}
-                  </div>
+                  No recent registrations to show. Your platform is ready for new users to sign up!
                 </div>
-              ))}
+              )}
             </div>
           </div>
         </>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '40px' }}>
+          <div style={{ color: theme.colors.error, fontSize: '18px', marginBottom: '10px' }}>
+            Unable to load platform statistics
+          </div>
+          <div style={{ color: theme.colors.textSecondary, marginBottom: '20px' }}>
+            There might be an issue connecting to the database or the API.
+          </div>
+          <Button 
+            onClick={loadStats}
+            variant="primary"
+          >
+            Retry Loading
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -522,8 +588,9 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div style={cardStyle}>
-              <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Popular Levels</h3>
-              {(stats?.popular_levels || []).map((lvl, idx) => (
+              <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Level Completion Progress</h3>
+              {(stats?.popular_levels || []).length > 0 ? (
+                (stats?.popular_levels || []).map((lvl, idx) => (
                 <div key={idx} style={{ marginBottom: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                     <span style={{ color: theme.colors.text }}>Level {lvl.level}: {lvl.title}</span>
@@ -538,13 +605,28 @@ const AdminDashboard: React.FC = () => {
                     }} />
                   </div>
                 </div>
-              ))}
+                ))
+              ) : (
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '30px', 
+                  color: theme.colors.textSecondary 
+                }}>
+                  No level completion data available yet
+                </div>
+              )}
             </div>
 
             <div style={cardStyle}>
               <h3 style={{ color: theme.colors.text, marginBottom: '16px' }}>Achievements Earned</h3>
               {achievements.length === 0 ? (
-                <div style={{ color: theme.colors.textSecondary }}>No achievements data</div>
+                <div style={{ 
+                  textAlign: 'center', 
+                  padding: '30px', 
+                  color: theme.colors.textSecondary 
+                }}>
+                  No achievements data available
+                </div>
               ) : (
                 achievements.map((a) => (
                   <div key={a.id} style={{ marginBottom: '10px' }}>

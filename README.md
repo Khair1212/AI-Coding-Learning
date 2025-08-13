@@ -1,10 +1,10 @@
 # AI Coding Learner 🚀
 
-A Duolingo-style interactive platform for learning C programming with AI-powered questions and gamification. 
+A Duolingo-style interactive platform for learning C programming with AI-powered questions and gamification.
 
 ## Features ✨
 
-- **10 Progressive Levels** of C programming (Hello World → Pointers & Memory) 
+- **10 Progressive Levels** of C programming (Hello World → Pointers & Memory)
 - **Interactive Learning** with multiple question types:
   - Multiple choice questions
   - Coding exercises
@@ -20,7 +20,7 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 
 - FastAPI (Python)
 - SQLAlchemy ORM
-- PostgreSQL/SQLite
+- PostgreSQL
 - OpenAI API
 - JWT Authentication
 

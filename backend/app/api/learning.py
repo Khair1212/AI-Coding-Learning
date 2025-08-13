@@ -15,7 +15,8 @@ from app.api.schemas import (
     GenerateQuestionRequest
 )
 from app.services.ai_service import AIQuestionGenerator, LessonContentGenerator
-from app.services.quiz_assignment_service import IntelligentQuizAssignmentService
+from app.services.ai_quiz_assignment_service import AIQuizAssignmentService
+from app.services.intelligent_question_service import IntelligentQuestionSelectionService
 
 router = APIRouter()
 ai_generator = AIQuestionGenerator()
@@ -89,9 +90,50 @@ def get_lesson_questions(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get questions for a specific lesson"""
-    questions = db.query(Question).filter(Question.lesson_id == lesson_id).all()
-    return questions
+    """Get personalized questions for a specific lesson based on user's skill assessment"""
+    # Use intelligent question selection
+    intelligent_service = IntelligentQuestionSelectionService(db)
+    
+    try:
+        # Get personalized question selection (3-4 questions per lesson)
+        selected_questions = intelligent_service.select_personalized_questions_for_lesson(
+            user_id=current_user.id,
+            lesson_id=lesson_id,
+            target_count=4  # Show 4 questions instead of all available
+        )
+        
+        # Convert to QuestionResponse format
+        questions = []
+        for q_data in selected_questions:
+            questions.append({
+                'id': q_data['id'],
+                'lesson_id': lesson_id,
+                'question_text': q_data['question_text'],
+                'question_type': q_data['question_type'],
+                'correct_answer': q_data['correct_answer'],
+                'options': q_data['options'],
+                'explanation': q_data['explanation'],
+                'code_template': q_data['code_template'],
+                # Additional AI context (for frontend to show reasoning)
+                'ai_context': {
+                    'selection_reasoning': q_data.get('selection_reasoning'),
+                    'personalized': q_data.get('personalized', True),
+                    'difficulty_for_user': q_data.get('difficulty_for_user'),
+                    'estimated_time_minutes': q_data.get('recommended_time_minutes')
+                }
+            })
+        
+        print(f"🎯 Serving {len(questions)} personalized questions for lesson {lesson_id} to user {current_user.id}")
+        return questions
+        
+    except Exception as e:
+        print(f"❌ Error in intelligent question selection: {e}")
+        # Fallback to random selection if AI service fails
+        all_questions = db.query(Question).filter(Question.lesson_id == lesson_id).all()
+        # Return random 4 questions as fallback
+        import random
+        selected = random.sample(all_questions, min(4, len(all_questions)))
+        return selected
 
 @router.post("/questions/submit")
 def submit_answer(
@@ -296,31 +338,102 @@ def get_personalized_quizzes(
     db: Session = Depends(get_db)
 ):
     """Get personalized quizzes assigned to the current user"""
-    assignment_service = IntelligentQuizAssignmentService(db)
-    assignments = assignment_service.get_user_assigned_quizzes(current_user.id)
+    # Check if user has AI-powered assignments
+    ai_assignments = db.query(PersonalizedQuizAssignment).filter(
+        PersonalizedQuizAssignment.user_id == current_user.id,
+        PersonalizedQuizAssignment.assignment_type == 'ai_generated',
+        PersonalizedQuizAssignment.is_active == True
+    ).all()
     
-    if not assignments:
-        # If no assignments exist, create them based on skill assessment
-        assignments = assignment_service.assign_personalized_quizzes_for_user(current_user.id)
+    if ai_assignments:
+        # Return AI-generated assignments with enhanced info
+        assignments = []
+        for assignment in ai_assignments:
+            assignments.append({
+                'id': assignment.id,
+                'lesson_id': assignment.lesson_id,
+                'lesson_title': assignment.lesson.title if assignment.lesson else 'Unknown',
+                'level_number': assignment.lesson.level.level_number if assignment.lesson and assignment.lesson.level else 1,
+                'priority_level': assignment.priority_level,
+                'difficulty_adjustment': assignment.difficulty_adjustment,
+                'target_question_count': assignment.target_question_count,
+                'estimated_completion_time': assignment.estimated_completion_time,
+                'ai_reasoning': assignment.ai_reasoning,
+                'assignment_type': 'AI-Generated',
+                'created_at': assignment.created_at
+            })
+        
+        return {
+            "assignments": assignments,
+            "message": "AI-powered personalized quizzes based on your comprehensive skill assessment",
+            "total_assignments": len(assignments),
+            "ai_enhanced": True
+        }
     
-    return {
-        "assignments": assignments,
-        "message": "Personalized quizzes based on your skill assessment and learning progress"
-    }
+    else:
+        return {
+            "assignments": [],
+            "message": "No personalized quizzes available. Please complete your skill assessment first.",
+            "total_assignments": 0,
+            "ai_enhanced": False
+        }
 
 @router.post("/refresh-quiz-assignments")
 def refresh_quiz_assignments(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Refresh personalized quiz assignments based on current skill level"""
-    assignment_service = IntelligentQuizAssignmentService(db)
-    assignments = assignment_service.assign_personalized_quizzes_for_user(current_user.id)
+    """Refresh personalized quiz assignments using AI analysis"""
+    # Get the user's latest assessment
+    latest_assessment = db.query(UserAssessment).filter(
+        UserAssessment.user_id == current_user.id,
+        UserAssessment.is_completed == True
+    ).order_by(UserAssessment.completed_at.desc()).first()
     
-    return {
-        "message": "Quiz assignments refreshed",
-        "new_assignments": len(assignments)
-    }
+    if not latest_assessment:
+        return {
+            "error": "No completed assessment found. Please complete your skill assessment first.",
+            "new_assignments": 0
+        }
+    
+    # Deactivate existing AI assignments
+    existing_assignments = db.query(PersonalizedQuizAssignment).filter(
+        PersonalizedQuizAssignment.user_id == current_user.id,
+        PersonalizedQuizAssignment.assignment_type == 'ai_generated'
+    ).all()
+    
+    for assignment in existing_assignments:
+        assignment.is_active = False
+    db.commit()
+    
+    # Create new AI-powered assignments
+    ai_service = AIQuizAssignmentService(db)
+    
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        result = loop.run_until_complete(
+            ai_service.create_comprehensive_quiz_assignments(
+                user_id=current_user.id,
+                assessment_id=latest_assessment.id
+            )
+        )
+        
+        return {
+            "message": "AI-powered quiz assignments refreshed successfully",
+            "new_assignments": result.get('total_assignments_created', 0),
+            "ai_enhanced": True,
+            "assessment_analyzed": latest_assessment.id
+        }
+    except Exception as e:
+        return {
+            "error": f"Failed to refresh assignments: {str(e)}",
+            "new_assignments": 0
+        }
+    finally:
+        loop.close()
 
 @router.get("/quiz/{quiz_id}/questions")
 def get_personalized_quiz_questions(
@@ -441,6 +554,145 @@ def submit_quiz_response(
         "response_id": response.id
     }
 
+@router.get("/ai-assignments")
+def get_ai_assignments(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed information about AI-generated quiz assignments"""
+    # Get all AI assignments for the user
+    assignments = db.query(PersonalizedQuizAssignment).filter(
+        PersonalizedQuizAssignment.user_id == current_user.id,
+        PersonalizedQuizAssignment.assignment_type == 'ai_generated',
+        PersonalizedQuizAssignment.is_active == True
+    ).order_by(PersonalizedQuizAssignment.created_at.desc()).all()
+    
+    if not assignments:
+        return {
+            "assignments": [],
+            "message": "No AI assignments found. Please complete your skill assessment to generate personalized quizzes.",
+            "total": 0
+        }
+    
+    # Format detailed assignment information
+    detailed_assignments = []
+    for assignment in assignments:
+        lesson = assignment.lesson
+        level = lesson.level if lesson else None
+        
+        # Parse learning objectives
+        learning_objectives = []
+        try:
+            if assignment.learning_objectives:
+                import json
+                learning_objectives = json.loads(assignment.learning_objectives)
+        except:
+            learning_objectives = ["Complete lesson with understanding"]
+        
+        assignment_data = {
+            'id': assignment.id,
+            'lesson_id': assignment.lesson_id,
+            'lesson_title': lesson.title if lesson else 'Unknown Lesson',
+            'level_number': level.level_number if level else 1,
+            'level_title': level.title if level else 'Unknown Level',
+            'priority_level': assignment.priority_level,
+            'difficulty_adjustment': assignment.difficulty_adjustment,
+            'target_question_count': assignment.target_question_count,
+            'estimated_completion_time': assignment.estimated_completion_time,
+            'learning_objectives': learning_objectives,
+            'ai_reasoning': assignment.ai_reasoning,
+            'assignment_type': assignment.assignment_type,
+            'created_at': assignment.created_at,
+            'status': 'active' if assignment.is_active else 'inactive'
+        }
+        detailed_assignments.append(assignment_data)
+    
+    # Group by priority for better organization
+    priority_groups = {'high': [], 'medium': [], 'low': []}
+    for assignment in detailed_assignments:
+        priority = assignment['priority_level']
+        if priority in priority_groups:
+            priority_groups[priority].append(assignment)
+    
+    return {
+        "assignments": detailed_assignments,
+        "assignments_by_priority": priority_groups,
+        "total_assignments": len(detailed_assignments),
+        "message": f"Found {len(detailed_assignments)} AI-generated quiz assignments",
+        "ai_enhanced": True,
+        "summary": {
+            'high_priority': len(priority_groups['high']),
+            'medium_priority': len(priority_groups['medium']),
+            'low_priority': len(priority_groups['low']),
+            'total_estimated_time': sum(a['estimated_completion_time'] for a in detailed_assignments if a['estimated_completion_time']),
+            'levels_covered': list(set(a['level_number'] for a in detailed_assignments))
+        }
+    }
+
+@router.get("/ai-assignment/{assignment_id}")
+def get_ai_assignment_detail(
+    assignment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get detailed information about a specific AI assignment"""
+    assignment = db.query(PersonalizedQuizAssignment).filter(
+        PersonalizedQuizAssignment.id == assignment_id,
+        PersonalizedQuizAssignment.user_id == current_user.id
+    ).first()
+    
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    
+    lesson = assignment.lesson
+    level = lesson.level if lesson else None
+    
+    # Get available questions for this lesson
+    questions = db.query(Question).filter(Question.lesson_id == assignment.lesson_id).all()
+    
+    # Parse learning objectives
+    learning_objectives = []
+    try:
+        if assignment.learning_objectives:
+            import json
+            learning_objectives = json.loads(assignment.learning_objectives)
+    except:
+        learning_objectives = ["Complete lesson with understanding"]
+    
+    return {
+        'assignment': {
+            'id': assignment.id,
+            'lesson_id': assignment.lesson_id,
+            'lesson_title': lesson.title if lesson else 'Unknown',
+            'lesson_description': lesson.description if lesson else '',
+            'level_number': level.level_number if level else 1,
+            'level_title': level.title if level else 'Unknown',
+            'priority_level': assignment.priority_level,
+            'difficulty_adjustment': assignment.difficulty_adjustment,
+            'target_question_count': assignment.target_question_count,
+            'available_questions': len(questions),
+            'estimated_completion_time': assignment.estimated_completion_time,
+            'learning_objectives': learning_objectives,
+            'ai_reasoning': assignment.ai_reasoning,
+            'created_at': assignment.created_at,
+            'is_active': assignment.is_active
+        },
+        'questions_preview': [
+            {
+                'id': q.id,
+                'question_text': q.question_text[:100] + '...' if len(q.question_text) > 100 else q.question_text,
+                'question_type': q.question_type.value,
+                'difficulty': getattr(q, 'difficulty_level', 'unknown')
+            } for q in questions[:5]  # Show first 5 questions as preview
+        ],
+        'level_info': {
+            'number': level.level_number if level else 1,
+            'title': level.title if level else 'Unknown',
+            'description': level.description if level else '',
+            'total_lessons': len(level.lessons) if level else 0
+        } if level else None
+    }
+
 @router.post("/quiz/complete/{attempt_id}")
 def complete_quiz_attempt(
     attempt_id: int,
@@ -502,8 +754,30 @@ def complete_quiz_attempt(
     
     # Trigger reassignment if user performance suggests they're ready for new challenges
     if accuracy >= 85:  # High performance
-        assignment_service = IntelligentQuizAssignmentService(db)
-        assignment_service.assign_personalized_quizzes_for_user(current_user.id)
+        # Get latest assessment for AI reassignment
+        latest_assessment = db.query(UserAssessment).filter(
+            UserAssessment.user_id == current_user.id,
+            UserAssessment.is_completed == True
+        ).order_by(UserAssessment.completed_at.desc()).first()
+        
+        if latest_assessment:
+            ai_service = AIQuizAssignmentService(db)
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                loop.run_until_complete(
+                    ai_service.create_comprehensive_quiz_assignments(
+                        user_id=current_user.id,
+                        assessment_id=latest_assessment.id
+                    )
+                )
+                print(f"🎯 High performance triggered AI reassignment for user {current_user.id}")
+            except Exception as e:
+                print(f"⚠️ AI reassignment failed: {e}")
+            finally:
+                loop.close()
     
     return {
         "attempt_id": attempt_id,

@@ -32,7 +32,8 @@ const Button: React.FC<ButtonProps> = ({
     alignItems: 'center',
     justifyContent: 'center',
     width: fullWidth ? '100%' : 'auto',
-    opacity: disabled ? 0.6 : 1
+    opacity: disabled ? 0.6 : 1,
+    boxSizing: 'border-box' as const  // Ensure consistent box model
   };
 
   const variants = {

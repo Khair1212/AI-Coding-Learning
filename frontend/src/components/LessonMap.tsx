@@ -101,19 +101,40 @@ const LessonMap: React.FC = () => {
   });
 
   const lessonMapStyle = {
-    display: 'flex',
-    flexDirection: 'column' as const,
-    alignItems: 'center',
-    gap: '20px',
+    position: 'relative' as const,
+    width: '100%',
     maxWidth: '600px',
-    margin: '0 auto'
+    margin: '0 auto',
+    minHeight: `${Math.max(800, lessons.length * 220 + 300)}px`,
+    paddingBottom: '100px'
   };
 
-  const lessonNodeStyle = (lesson: Lesson, index: number) => {
+  // Calculate position for each lesson node in a winding path
+  const getLessonPosition = (index: number, totalLessons: number) => {
+    const containerWidth = 500; // Max width for positioning
+    const verticalSpacing = 220; // Increased space between lessons
+    const amplitude = 150; // How far left/right the path goes
+    const centerX = containerWidth / 2;
+    
+    // Create a sine wave pattern for horizontal positioning
+    const normalizedIndex = index / Math.max(1, totalLessons - 1);
+    const horizontalOffset = Math.sin(normalizedIndex * Math.PI * 2.2) * amplitude;
+    
+    return {
+      left: centerX + horizontalOffset,
+      top: index * verticalSpacing + 80
+    };
+  };
+
+  const lessonNodeStyle = (lesson: Lesson, index: number, position: {left: number, top: number}) => {
     const isCompleted = lesson.is_completed;
     const isLocked = index > 0 && !lessons[index - 1]?.is_completed;
     
     return {
+      position: 'absolute' as const,
+      left: `${position.left}px`,
+      top: `${position.top}px`,
+      transform: 'translateX(-50%)',
       width: '80px',
       height: '80px',
       borderRadius: '50%',
@@ -126,12 +147,23 @@ const LessonMap: React.FC = () => {
       cursor: isLocked ? 'not-allowed' : 'pointer',
       fontSize: '24px',
       fontWeight: 'bold',
-      position: 'relative' as const,
       transition: 'all 0.3s ease',
       boxShadow: isCompleted ? '0 4px 12px rgba(40, 167, 69, 0.3)' : 
-                  isLocked ? 'none' : `0 4px 12px ${theme.colors.primary}30`
+                  isLocked ? 'none' : `0 4px 12px ${theme.colors.primary}30`,
+      zIndex: 10
     };
   };
+
+  const lessonInfoContainerStyle = (position: {left: number, top: number}) => ({
+    position: 'absolute' as const,
+    left: `${position.left}px`,
+    top: `${position.top + 110}px`,
+    transform: 'translateX(-50%)',
+    width: '220px',
+    textAlign: 'center' as const,
+    zIndex: 5,
+    marginLeft: '-10px' // Center better
+  });
 
   const lessonInfoStyle = {
     textAlign: 'center' as const,
@@ -151,11 +183,31 @@ const LessonMap: React.FC = () => {
     textTransform: 'capitalize' as const
   };
 
-  const pathLineStyle = {
-    width: '4px',
-    height: '40px',
-    background: '#dee2e6',
-    margin: '0 auto'
+  // Draw curved path between lessons
+  const getPathBetweenLessons = (pos1: {left: number, top: number}, pos2: {left: number, top: number}) => {
+    const pathId = `path-${pos1.left}-${pos1.top}-${pos2.left}-${pos2.top}`;
+    return (
+      <svg
+        key={pathId}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 1
+        }}
+      >
+        <path
+          d={`M ${pos1.left} ${pos1.top + 40} Q ${(pos1.left + pos2.left) / 2} ${pos1.top + (pos2.top - pos1.top) * 0.6} ${pos2.left} ${pos2.top - 40}`}
+          stroke="#dee2e6"
+          strokeWidth="5"
+          fill="none"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
   };
 
   const getLessonIcon = (lesson: Lesson) => {
@@ -246,22 +298,34 @@ const LessonMap: React.FC = () => {
 
       {/* Lesson Map */}
       <div style={lessonMapStyle}>
+        {/* Draw paths between lessons */}
+        {lessons.map((lesson, index) => {
+          if (index === 0) return null;
+          
+          const currentPos = getLessonPosition(index, lessons.length);
+          const prevPos = getLessonPosition(index - 1, lessons.length);
+          
+          return getPathBetweenLessons(prevPos, currentPos);
+        })}
+        
+        {/* Render lesson nodes */}
         {lessons.map((lesson, index) => {
           const isLocked = index > 0 && !lessons[index - 1]?.is_completed;
+          const position = getLessonPosition(index, lessons.length);
           
           return (
             <div key={lesson.id}>
-              {index > 0 && <div style={pathLineStyle}></div>}
+              {/* Lesson Node */}
               <div
-                style={lessonNodeStyle(lesson, index)}
+                style={lessonNodeStyle(lesson, index, position)}
                 onClick={() => !isLocked && handleLessonClick(lesson)}
                 onMouseEnter={(e) => {
                   if (!isLocked) {
-                    e.currentTarget.style.transform = 'scale(1.1)';
+                    e.currentTarget.style.transform = 'translateX(-50%) scale(1.1)';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.transform = 'translateX(-50%) scale(1)';
                 }}
               >
                 {getLessonIcon(lesson)}
@@ -284,7 +348,9 @@ const LessonMap: React.FC = () => {
                   </div>
                 )}
               </div>
-              <div style={lessonInfoStyle}>
+              
+              {/* Lesson Info */}
+              <div style={lessonInfoContainerStyle(position)}>
                 <div style={lessonTitleStyle}>{lesson.title}</div>
                 <div style={lessonTypeStyle}>
                   {lesson.lesson_type.replace('_', ' ')} • {lesson.xp_reward} XP

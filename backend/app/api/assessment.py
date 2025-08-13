@@ -10,7 +10,7 @@ from app.models import (
     UserSkillProfile, SkillLevel, AdaptiveDifficultyLog
 )
 from app.services.adaptive_service import AdaptiveLearningService
-from app.services.quiz_assignment_service import IntelligentQuizAssignmentService
+from app.services.ai_quiz_assignment_service import AIQuizAssignmentService
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -68,7 +68,7 @@ def start_assessment(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Start a new skill assessment for the user"""
+    """Start a new intelligent skill assessment for the user"""
     
     # Check if user already has a completed assessment
     existing_assessment = db.query(UserAssessment).filter(
@@ -91,15 +91,20 @@ def start_assessment(
     db.commit()
     db.refresh(assessment)
     
-    # Get assessment questions (15 questions covering all levels)
-    questions = db.query(AssessmentQuestion).filter(
+    # Intelligent question selection for assessment
+    all_questions = db.query(AssessmentQuestion).filter(
         AssessmentQuestion.is_active == True
     ).all()
     
-    # Store assessment ID in session (you might want to use a different approach)
-    # For now, we'll rely on getting the latest assessment for this user
+    # Select questions intelligently based on assessment type and user history
+    selected_questions = _select_intelligent_assessment_questions(
+        all_questions, assessment_type, existing_assessment, db
+    )
     
-    return questions
+    print(f"🎯 Starting {'retake' if existing_assessment else 'initial'} assessment for user {current_user.id}")
+    print(f"   Selected {len(selected_questions)} questions from {len(all_questions)} available")
+    
+    return selected_questions
 
 @router.post("/submit", response_model=AssessmentResult)
 def submit_assessment(
@@ -182,9 +187,28 @@ def submit_assessment(
     
     db.commit()
     
-    # Trigger personalized quiz assignment based on assessment results
-    quiz_service = IntelligentQuizAssignmentService(db)
-    quiz_assignments = quiz_service.reassign_quizzes_after_assessment(assessment.user_id, assessment.id)
+    # Trigger AI-powered quiz assignment based on assessment results
+    print(f"🤖 Starting comprehensive AI quiz assignment process...")
+    ai_quiz_service = AIQuizAssignmentService(db)
+    
+    # Use async method in a synchronous context
+    import asyncio
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        quiz_assignment_result = loop.run_until_complete(
+            ai_quiz_service.create_comprehensive_quiz_assignments(
+                user_id=assessment.user_id,
+                assessment_id=assessment.id
+            )
+        )
+        print(f"✅ AI quiz assignment completed: {quiz_assignment_result.get('total_assignments_created', 0)} assignments")
+    except Exception as e:
+        print(f"⚠️ AI quiz assignment failed: {e}")
+        # Fallback: continue without AI assignment
+    finally:
+        loop.close()
     
     # Generate recommendations
     recommendations = _generate_recommendations(topic_performance, skill_level, calculated_level)
@@ -328,3 +352,138 @@ def _generate_recommendations(topic_performance: dict, skill_level: SkillLevel,
         recommendations.append(f"Excellent! You can skip ahead to Level {calculated_level} and tackle advanced topics.")
     
     return recommendations[:5]  # Return top 5 recommendations
+
+def _select_intelligent_assessment_questions(
+    all_questions: list, 
+    assessment_type: str, 
+    existing_assessment, 
+    db: Session
+) -> list:
+    """
+    Intelligently select assessment questions based on:
+    - Assessment type (initial vs progress_check)
+    - Previous assessment results (if any)
+    - Balanced coverage of topics and difficulty levels
+    """
+    import random
+    
+    # Target question count
+    target_count = 15
+    
+    if assessment_type == "initial":
+        # For initial assessment, ensure balanced coverage
+        return _select_balanced_initial_questions(all_questions, target_count)
+    else:
+        # For progress check, focus on areas that need re-evaluation
+        return _select_progress_focused_questions(
+            all_questions, existing_assessment, target_count, db
+        )
+
+def _select_balanced_initial_questions(all_questions: list, target_count: int) -> list:
+    """Select questions for initial assessment with balanced coverage"""
+    
+    # Group questions by topic and expected level
+    topic_groups = {}
+    level_groups = {}
+    
+    for q in all_questions:
+        # Group by topic
+        topic = q.topic_area
+        if topic not in topic_groups:
+            topic_groups[topic] = []
+        topic_groups[topic].append(q)
+        
+        # Group by level
+        level = q.expected_level
+        if level not in level_groups:
+            level_groups[level] = []
+        level_groups[level].append(q)
+    
+    selected = []
+    
+    # Ensure we have questions from each difficulty level (1-10)
+    level_targets = {
+        1: 2,  # Basics - 2 questions
+        2: 2,  # Variables - 2 questions
+        3: 2,  # I/O - 2 questions
+        4: 2,  # Operators - 2 questions
+        5: 2,  # Control Flow - 2 questions
+        6: 1,  # Loops - 1 question
+        7: 1,  # Functions - 1 question
+        8: 1,  # Arrays - 1 question
+        9: 1,  # Strings - 1 question
+        10: 1  # Pointers - 1 question
+    }
+    
+    import random
+    
+    for level, target in level_targets.items():
+        if level in level_groups:
+            available = level_groups[level]
+            count = min(target, len(available))
+            selected.extend(random.sample(available, count))
+    
+    # If we don't have enough questions, fill randomly
+    if len(selected) < target_count:
+        remaining = [q for q in all_questions if q not in selected]
+        additional = min(target_count - len(selected), len(remaining))
+        selected.extend(random.sample(remaining, additional))
+    
+    return selected[:target_count]
+
+def _select_progress_focused_questions(
+    all_questions: list, 
+    existing_assessment, 
+    target_count: int, 
+    db: Session
+) -> list:
+    """Select questions for progress check focused on previous weak areas"""
+    
+    if not existing_assessment:
+        return _select_balanced_initial_questions(all_questions, target_count)
+    
+    # Get previous responses to identify weak areas
+    previous_responses = db.query(AssessmentResponse).filter(
+        AssessmentResponse.assessment_id == existing_assessment.id
+    ).all()
+    
+    # Analyze weak topic areas
+    topic_performance = {}
+    for response in previous_responses:
+        if response.question:
+            topic = response.question.topic_area
+            if topic not in topic_performance:
+                topic_performance[topic] = []
+            topic_performance[topic].append(response.is_correct)
+    
+    # Identify weak areas (< 60% accuracy)
+    weak_topics = []
+    for topic, results in topic_performance.items():
+        accuracy = sum(results) / len(results) if results else 0
+        if accuracy < 0.6:
+            weak_topics.append(topic)
+    
+    print(f"🔍 Progress check: Weak areas identified: {weak_topics}")
+    
+    # Select questions with bias toward weak areas
+    selected = []
+    
+    # 60% from weak areas, 40% balanced coverage
+    weak_target = int(target_count * 0.6)
+    balanced_target = target_count - weak_target
+    
+    # Select from weak areas
+    weak_questions = [q for q in all_questions if q.topic_area in weak_topics]
+    if weak_questions:
+        import random
+        weak_selected = random.sample(weak_questions, min(weak_target, len(weak_questions)))
+        selected.extend(weak_selected)
+    
+    # Fill remaining with balanced selection
+    remaining_questions = [q for q in all_questions if q not in selected]
+    if remaining_questions:
+        import random
+        additional = min(target_count - len(selected), len(remaining_questions))
+        selected.extend(random.sample(remaining_questions, additional))
+    
+    return selected[:target_count]

@@ -15,7 +15,7 @@ class AdaptiveLearningService:
         self.ai_generator = AIQuestionGenerator()
     
     def calculate_skill_level(self, assessment: UserAssessment) -> Tuple[int, SkillLevel]:
-        """Calculate user's skill level based on assessment results"""
+        """Calculate user's skill level based on assessment results with improved logic"""
         if not assessment.is_completed:
             return 1, SkillLevel.COMPLETE_BEGINNER
         
@@ -24,119 +24,318 @@ class AdaptiveLearningService:
             AssessmentResponse.assessment_id == assessment.id
         ).all()
         
-        # Calculate level-weighted score based on question expected levels
-        total_level_weight = 0
-        weighted_level_score = 0
+        if not responses:
+            return 1, SkillLevel.COMPLETE_BEGINNER
         
-        topic_scores = {
-            'basics': 0, 'control_flow': 0, 'functions': 0, 
-            'arrays': 0, 'pointers': 0
-        }
-        topic_counts = {
-            'basics': 0, 'control_flow': 0, 'functions': 0, 
-            'arrays': 0, 'pointers': 0
-        }
+        # Enhanced topic mapping for better granularity
+        topic_scores = {}
+        topic_counts = {}
+        level_performance = {}  # Track performance by difficulty level
         
-        # Calculate level-based scoring
+        # Analyze all responses
         for response in responses:
             question = response.question
-            # Use expected_level as the weight (higher level questions worth more)
-            level_weight = question.expected_level * question.difficulty_weight
-            total_level_weight += level_weight
+            if not question:
+                continue
+                
+            topic = question.topic_area
+            level = question.expected_level
             
+            # Track by topic
+            if topic not in topic_scores:
+                topic_scores[topic] = 0
+                topic_counts[topic] = 0
+            topic_counts[topic] += 1
             if response.is_correct:
-                weighted_level_score += level_weight
-                
-            # Track topic-specific performance
-            topic = self._get_topic_category(question.topic_area)
-            if topic in topic_scores:
-                topic_scores[topic] += 1 if response.is_correct else 0
-                topic_counts[topic] += 1
+                topic_scores[topic] += 1
+            
+            # Track by difficulty level
+            if level not in level_performance:
+                level_performance[level] = {'correct': 0, 'total': 0}
+            level_performance[level]['total'] += 1
+            if response.is_correct:
+                level_performance[level]['correct'] += 1
         
-        # Calculate realistic level based on WEAKEST areas (pedagogically sound)
-        if total_level_weight == 0 or len(responses) == 0:
-            calculated_level = 1
-        else:
-            # Step 1: Analyze topic-specific performance
-            topic_mastery = {}
-            for topic in topic_scores:
-                if topic_counts[topic] > 0:
-                    mastery_rate = topic_scores[topic] / topic_counts[topic]
-                    topic_mastery[topic] = mastery_rate
-                else:
-                    topic_mastery[topic] = 0.0
-            
-            # Step 2: Map topics to prerequisite levels (progressive learning)
-            topic_to_level_range = {
-                'basics': (1, 3),      # Levels 1-3: Variables, I/O, syntax
-                'control_flow': (4, 6), # Levels 4-6: If/else, loops
-                'functions': (7, 7),    # Level 7: Functions
-                'arrays': (8, 9),      # Levels 8-9: Arrays, strings
-                'pointers': (10, 10)   # Level 10: Pointers, memory
-            }
-            
-            # Step 3: Find weakest prerequisite area (foundation-based approach)
-            recommended_level = 10  # Start optimistic
-            weak_areas = []
-            
-            for topic, mastery in topic_mastery.items():
-                min_level, max_level = topic_to_level_range[topic]
-                
-                # If mastery is poor in a foundational topic, start there
-                if mastery < 0.7:  # Less than 70% mastery
-                    recommended_level = min(recommended_level, min_level)
-                    weak_areas.append(f"{topic} ({mastery:.1%})")
-                elif mastery < 0.9:  # Less than 90% mastery
-                    # Can start in this topic range but not advance beyond it
-                    recommended_level = min(recommended_level, max_level)
-            
-            # Step 4: Check for prerequisite violations
-            # Can't be good at advanced topics without mastering basics
-            basics_mastery = topic_mastery.get('basics', 0)
-            control_mastery = topic_mastery.get('control_flow', 0)
-            
-            if basics_mastery < 0.8 and recommended_level > 3:
-                recommended_level = min(recommended_level, 3)
-                weak_areas.append(f"basics_foundation ({basics_mastery:.1%})")
-            
-            if control_mastery < 0.8 and recommended_level > 6:
-                recommended_level = min(recommended_level, 6)
-                weak_areas.append(f"control_flow_foundation ({control_mastery:.1%})")
-            
-            # Step 5: AI-powered analysis for edge cases
-            ai_recommendation = self._get_ai_level_recommendation(responses, topic_mastery, accuracy)
-            
-            # Final level: Conservative approach (choose lower of algorithmic vs AI)
-            calculated_level = min(recommended_level, ai_recommendation)
-            calculated_level = max(1, min(10, calculated_level))
-            
-            # Debug logging
-            print(f"Realistic Level Calculation:")
-            print(f"  Overall Accuracy: {accuracy:.1%}")
-            print(f"  Topic Mastery: {topic_mastery}")
-            print(f"  Weak Areas: {weak_areas}")
-            print(f"  Algorithmic Level: {recommended_level}")
-            print(f"  AI Recommendation: {ai_recommendation}")
-            print(f"  Final Conservative Level: {calculated_level}")
-            print(f"  Reasoning: Start where foundations are weakest")
+        # Calculate topic mastery rates
+        topic_mastery = {}
+        for topic, score in topic_scores.items():
+            count = topic_counts[topic]
+            mastery = score / count if count > 0 else 0.0
+            topic_mastery[topic] = mastery
         
-        # Determine skill level enum
-        if accuracy < 0.3:
-            skill_level = SkillLevel.COMPLETE_BEGINNER
-        elif accuracy < 0.5:
-            skill_level = SkillLevel.BEGINNER
-        elif accuracy < 0.7:
-            skill_level = SkillLevel.INTERMEDIATE
-        elif accuracy < 0.9:
-            skill_level = SkillLevel.ADVANCED
-        else:
-            skill_level = SkillLevel.EXPERT
+        # Smart level calculation based on performance patterns
+        calculated_level = self._calculate_intelligent_level(
+            accuracy, topic_mastery, level_performance
+        )
+        
+        # Determine skill level based on overall performance
+        skill_level = self._determine_skill_level(accuracy, topic_mastery, calculated_level)
+        
+        # Debug logging
+        print(f"🎯 Improved Assessment Analysis:")
+        print(f"   Overall Accuracy: {accuracy:.1%}")
+        print(f"   Topic Breakdown: {topic_mastery}")
+        print(f"   Level Performance: {level_performance}")
+        print(f"   Calculated Level: {calculated_level}")
+        print(f"   Skill Level: {skill_level.value}")
         
         # Update user skill profile
-        self._update_skill_profile(assessment.user_id, topic_scores, topic_counts, 
-                                 skill_level, calculated_level)
+        self._update_enhanced_skill_profile(
+            assessment.user_id, topic_mastery, skill_level, calculated_level
+        )
         
         return calculated_level, skill_level
+    
+    def _calculate_intelligent_level(self, accuracy: float, topic_mastery: dict, level_performance: dict) -> int:
+        """Dynamic progression-based level calculation - recommends NEXT level to learn"""
+        
+        # Map topics to their corresponding course levels 
+        topic_level_mapping = {
+            'basics': 1,
+            'variables': 2,
+            'operators': 3,
+            'loops': 4,
+            'functions': 5,
+            'arrays': 6,
+            'strings': 7,
+            'pointers': 8,
+            'memory': 9,
+            'memory_management': 9
+        }
+        
+        # Find the highest level user has MASTERED (70%+ proficiency)
+        mastered_levels = []
+        
+        print(f"🎯 Dynamic Level Assessment:")
+        
+        for topic, mastery_rate in topic_mastery.items():
+            topic_key = topic.lower().replace(' ', '_')
+            topic_level = topic_level_mapping.get(topic_key, 1)
+            
+            print(f"   {topic}: {mastery_rate:.1%} → Level {topic_level}")
+            
+            # Consider a topic mastered if 70%+ proficiency
+            if mastery_rate >= 0.7:
+                mastered_levels.append(topic_level)
+                print(f"     ✅ MASTERED! Level {topic_level}")
+            elif mastery_rate >= 0.5:
+                print(f"     🟡 Partially learned (50%+)")
+            else:
+                print(f"     ❌ Needs work (<50%)")
+        
+        if mastered_levels:
+            highest_mastered = max(mastered_levels)
+            recommended_level = min(10, highest_mastered + 1)  # Next level after mastered
+            
+            print(f"   📈 Highest Mastered Level: {highest_mastered}")
+            print(f"   🎯 Recommended Next Level: {recommended_level}")
+            
+            # If user has mastered levels 1-9, they're ready for level 10
+            if highest_mastered >= 9:
+                return 10
+            else:
+                return recommended_level
+        else:
+            # No topics mastered - start from level 1
+            print(f"   🔄 No topics mastered yet - Start with Level 1")
+            return 1
+    
+    def _get_performance_based_level(self, level_performance: dict) -> float:
+        """Calculate level based on performance at different difficulty levels"""
+        
+        if not level_performance:
+            return 1.0
+        
+        # Find the highest level where user has > 50% accuracy
+        max_competent_level = 0
+        total_weighted_score = 0
+        total_weight = 0
+        
+        for level, data in level_performance.items():
+            total = data['total']
+            correct = data['correct']
+            
+            if total > 0:
+                accuracy_at_level = correct / total
+                # Weight by level difficulty
+                weight = level * total  # Higher levels and more questions = more weight
+                total_weighted_score += accuracy_at_level * weight
+                total_weight += weight
+                
+                # Track highest level with decent performance
+                if accuracy_at_level >= 0.5:  # 50% threshold
+                    max_competent_level = max(max_competent_level, level)
+        
+        if total_weight > 0:
+            weighted_avg_performance = total_weighted_score / total_weight
+            # Blend max competent level with weighted average
+            return (max_competent_level * 0.7 + weighted_avg_performance * 10 * 0.3)
+        
+        return 1.0
+    
+    def _get_topic_based_level(self, topic_mastery: dict) -> float:
+        """Calculate level based on topic mastery patterns"""
+        
+        # Map topics to their corresponding course levels (case-insensitive)
+        topic_level_mapping = {
+            'basics': 1,
+            'variables': 2, 
+            'operators': 3,
+            'control_flow': 4,
+            'loops': 5,
+            'functions': 6,
+            'arrays': 7,
+            'strings': 8,
+            'pointers': 9,
+            'memory': 10,
+            'memory_management': 10,  # Alternative name
+            'memory management': 10   # Spaced version
+        }
+        
+        # Calculate level based on strongest topics
+        max_mastered_level = 0
+        mastery_scores = []
+        
+        print(f"🔍 Topic-based level calculation:")
+        
+        for topic, mastery in topic_mastery.items():
+            # Make comparison case-insensitive and handle spaces
+            topic_key = topic.lower().replace(' ', '_')
+            topic_level = topic_level_mapping.get(topic_key, 1)
+            
+            print(f"   {topic} (key: {topic_key}) → Level {topic_level}, Mastery: {mastery:.1%}")
+            
+            if mastery >= 0.7:  # 70% mastery threshold
+                max_mastered_level = max(max_mastered_level, topic_level)
+                print(f"     ✅ Mastered! New max level: {max_mastered_level}")
+            
+            # Weight mastery by topic difficulty
+            mastery_scores.append(mastery * topic_level)
+        
+        if mastery_scores:
+            avg_weighted_mastery = sum(mastery_scores) / len(mastery_scores)
+            # Blend max mastered level with weighted average
+            final_level = max_mastered_level * 0.6 + avg_weighted_mastery * 0.4
+            print(f"   📊 Max mastered level: {max_mastered_level}")
+            print(f"   📊 Avg weighted mastery: {avg_weighted_mastery:.2f}")
+            print(f"   📊 Final topic-based level: {final_level:.2f}")
+            return final_level
+        
+        print(f"   ⚠️ No mastery scores found, returning 1.0")
+        return 1.0
+    
+    def _get_accuracy_based_level(self, accuracy: float) -> float:
+        """Simple accuracy to level mapping"""
+        if accuracy >= 1.0:
+            return 10.0  # Perfect accuracy = expert level
+        elif accuracy >= 0.95:
+            return 9.0   # Near perfect = advanced expert
+        elif accuracy >= 0.9:
+            return 8.0   # Very high accuracy = advanced
+        elif accuracy >= 0.8:
+            return 6.0   # High accuracy = intermediate-advanced
+        elif accuracy >= 0.7:
+            return 4.5   # Good accuracy = intermediate
+        elif accuracy >= 0.6:
+            return 3.0   # Decent accuracy = beginner-intermediate
+        elif accuracy >= 0.5:
+            return 2.0   # Fair accuracy = beginner
+        else:
+            return 1.0   # Low accuracy = complete beginner
+    
+    def _determine_skill_level(self, accuracy: float, topic_mastery: dict, calculated_level: int) -> SkillLevel:
+        """Determine skill level based on highest mastered level (dynamic progression)"""
+        
+        # Map topics to levels and find highest mastered level
+        topic_level_mapping = {
+            'basics': 1, 'variables': 2, 'operators': 3, 'loops': 4, 'functions': 5,
+            'arrays': 6, 'strings': 7, 'pointers': 8, 'memory': 9, 'memory_management': 9
+        }
+        
+        mastered_levels = []
+        for topic, mastery_rate in topic_mastery.items():
+            topic_key = topic.lower().replace(' ', '_')
+            topic_level = topic_level_mapping.get(topic_key, 1)
+            if mastery_rate >= 0.7:  # 70%+ considered mastered
+                mastered_levels.append(topic_level)
+        
+        highest_mastered = max(mastered_levels) if mastered_levels else 0
+        
+        print(f"🎯 Dynamic Skill Level Assessment:")
+        print(f"   Highest Mastered Level: {highest_mastered}")
+        print(f"   Recommended Next Level: {calculated_level}")
+        
+        # Dynamic skill level based on progression, not static accuracy
+        if highest_mastered >= 8:  # Mastered advanced topics (Pointers/Memory)
+            print(f"   → EXPERT: Mastered advanced concepts through Level {highest_mastered}")
+            return SkillLevel.EXPERT
+        elif highest_mastered >= 6:  # Mastered intermediate topics (Arrays/Strings)
+            print(f"   → ADVANCED: Mastered intermediate concepts through Level {highest_mastered}")
+            return SkillLevel.ADVANCED
+        elif highest_mastered >= 4:  # Mastered basic programming (Loops/Functions)
+            print(f"   → INTERMEDIATE: Mastered basic programming through Level {highest_mastered}")
+            return SkillLevel.INTERMEDIATE
+        elif highest_mastered >= 2:  # Mastered fundamentals (Variables/Operators)
+            print(f"   → BEGINNER: Mastered fundamentals through Level {highest_mastered}")
+            return SkillLevel.BEGINNER
+        else:  # No solid mastery yet
+            print(f"   → COMPLETE_BEGINNER: Still learning fundamentals")
+            return SkillLevel.COMPLETE_BEGINNER
+    
+    def _update_enhanced_skill_profile(self, user_id: int, topic_mastery: dict, 
+                                     skill_level: SkillLevel, calculated_level: int):
+        """Update skill profile with enhanced topic tracking"""
+        
+        profile = self.db.query(UserSkillProfile).filter(
+            UserSkillProfile.user_id == user_id
+        ).first()
+        
+        if not profile:
+            profile = UserSkillProfile(user_id=user_id)
+            self.db.add(profile)
+        
+        # Update mastery scores with actual topic data
+        for topic, mastery in topic_mastery.items():
+            normalized_topic = self._normalize_topic_name(topic)
+            
+            if normalized_topic == 'basics':
+                profile.basics_mastery = mastery
+            elif normalized_topic == 'control_flow':
+                profile.control_flow_mastery = mastery
+            elif normalized_topic == 'functions':
+                profile.functions_mastery = mastery
+            elif normalized_topic == 'arrays':
+                profile.arrays_mastery = mastery
+            elif normalized_topic == 'pointers':
+                profile.pointers_mastery = mastery
+        
+        profile.overall_skill_level = skill_level
+        profile.adaptive_level = calculated_level
+        
+        # Update learning characteristics
+        avg_mastery = sum(topic_mastery.values()) / len(topic_mastery) if topic_mastery else 0
+        profile.learning_velocity = min(2.0, max(0.5, avg_mastery * 1.5))
+        profile.prefers_challenge = avg_mastery > 0.8
+        profile.needs_more_practice = avg_mastery < 0.6
+        
+        self.db.commit()
+    
+    def _normalize_topic_name(self, topic: str) -> str:
+        """Normalize topic names to standard categories"""
+        topic_lower = topic.lower()
+        
+        if any(word in topic_lower for word in ['basic', 'variable', 'data', 'io', 'input', 'output']):
+            return 'basics'
+        elif any(word in topic_lower for word in ['loop', 'for', 'while', 'control', 'if', 'else']):
+            return 'control_flow'  
+        elif any(word in topic_lower for word in ['function', 'parameter', 'return']):
+            return 'functions'
+        elif any(word in topic_lower for word in ['array', 'string']):
+            return 'arrays'
+        elif any(word in topic_lower for word in ['pointer', 'memory', 'malloc']):
+            return 'pointers'
+        else:
+            return 'basics'  # Default fallback
     
     def _get_topic_category(self, topic_area: str) -> str:
         """Map specific topics to broader categories"""
@@ -150,37 +349,6 @@ class AdaptiveLearningService:
         }
         return topic_mapping.get(topic_area, 'basics')
     
-    def _update_skill_profile(self, user_id: int, topic_scores: Dict, topic_counts: Dict,
-                            skill_level: SkillLevel, calculated_level: int):
-        """Update user's skill profile based on assessment"""
-        profile = self.db.query(UserSkillProfile).filter(
-            UserSkillProfile.user_id == user_id
-        ).first()
-        
-        if not profile:
-            profile = UserSkillProfile(user_id=user_id)
-            self.db.add(profile)
-        
-        # Update topic mastery scores (0.0 to 1.0)
-        for topic, score in topic_scores.items():
-            count = topic_counts[topic]
-            mastery = score / count if count > 0 else 0.0
-            
-            if topic == 'basics':
-                profile.basics_mastery = mastery
-            elif topic == 'control_flow':
-                profile.control_flow_mastery = mastery
-            elif topic == 'functions':
-                profile.functions_mastery = mastery
-            elif topic == 'arrays':
-                profile.arrays_mastery = mastery
-            elif topic == 'pointers':
-                profile.pointers_mastery = mastery
-        
-        profile.overall_skill_level = skill_level
-        profile.adaptive_level = calculated_level
-        
-        self.db.commit()
     
     def get_adaptive_difficulty(self, user_id: int, lesson: Lesson) -> DifficultyLevel:
         """Determine appropriate difficulty for a lesson based on user's skill profile"""

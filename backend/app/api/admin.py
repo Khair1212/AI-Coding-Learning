@@ -46,62 +46,79 @@ def get_admin_stats(
 ):
     """Get comprehensive platform statistics"""
     
-    # Basic counts
-    total_users = db.query(User).count()
-    active_users = db.query(User).filter(User.is_active == True).count()
-    total_lessons_completed = db.query(UserLessonProgress).filter(
-        UserLessonProgress.is_completed == True
-    ).count()
-    total_assessments = db.query(UserAssessment).filter(
-        UserAssessment.is_completed == True
-    ).count()
+    try:
+        # Basic counts
+        total_users = db.query(User).count()
+        active_users = db.query(User).filter(User.is_active == True).count()
+        total_lessons_completed = db.query(UserLessonProgress).filter(
+            UserLessonProgress.is_completed == True
+        ).count()
+        total_assessments = db.query(UserAssessment).filter(
+            UserAssessment.is_completed == True
+        ).count()
+        
+        # Average accuracy
+        avg_accuracy = db.query(func.avg(UserAssessment.accuracy_percentage)).filter(
+            UserAssessment.is_completed == True
+        ).scalar() or 0.0
+        
+        # Popular levels (by lesson completions)
+        popular_levels = db.query(
+            Level.level_number,
+            Level.title,
+            func.count(UserLessonProgress.id).label('completions')
+        ).join(
+            Lesson, Level.id == Lesson.level_id
+        ).join(
+            UserLessonProgress, Lesson.id == UserLessonProgress.lesson_id
+        ).filter(
+            UserLessonProgress.is_completed == True
+        ).group_by(Level.id, Level.level_number, Level.title).order_by(desc(func.count(UserLessonProgress.id))).limit(5).all()
+        
+        # Recent registrations (last 7 days)
+        week_ago = datetime.now() - timedelta(days=7)
+        recent_users = db.query(User).filter(
+            User.created_at >= week_ago
+        ).order_by(desc(User.created_at)).limit(10).all()
     
-    # Average accuracy
-    avg_accuracy = db.query(func.avg(UserAssessment.accuracy_percentage)).filter(
-        UserAssessment.is_completed == True
-    ).scalar() or 0.0
+        return AdminStatsResponse(
+            total_users=total_users,
+            active_users=active_users,
+            total_lessons_completed=total_lessons_completed,
+            total_assessments=total_assessments,
+            average_accuracy=round(avg_accuracy, 1),
+            popular_levels=[
+                {
+                    "level": level_number,
+                    "title": title,
+                    "completions": completions
+                } for level_number, title, completions in popular_levels
+            ],
+            recent_registrations=[
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "created_at": user.created_at.isoformat() if user.created_at else None
+                } for user in recent_users
+            ]
+        )
     
-    # Popular levels (by lesson completions)
-    popular_levels = db.query(
-        Level.level_number,
-        Level.title,
-        func.count(UserLessonProgress.id).label('completions')
-    ).join(
-        Lesson, Level.id == Lesson.level_id
-    ).join(
-        UserLessonProgress, Lesson.id == UserLessonProgress.lesson_id
-    ).filter(
-        UserLessonProgress.is_completed == True
-    ).group_by(Level.id).order_by(desc('completions')).limit(5).all()
-    
-    # Recent registrations (last 7 days)
-    week_ago = datetime.now() - timedelta(days=7)
-    recent_users = db.query(User).filter(
-        User.created_at >= week_ago
-    ).order_by(desc(User.created_at)).limit(10).all()
-    
-    return AdminStatsResponse(
-        total_users=total_users,
-        active_users=active_users,
-        total_lessons_completed=total_lessons_completed,
-        total_assessments=total_assessments,
-        average_accuracy=round(avg_accuracy, 1),
-        popular_levels=[
-            {
-                "level": level.level_number,
-                "title": level.title,
-                "completions": completions
-            } for level, completions in popular_levels
-        ],
-        recent_registrations=[
-            {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "created_at": user.created_at.isoformat() if user.created_at else None
-            } for user in recent_users
-        ]
-    )
+    except Exception as e:
+        print(f"❌ Error in admin stats endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return safe default values
+        return AdminStatsResponse(
+            total_users=0,
+            active_users=0,
+            total_lessons_completed=0,
+            total_assessments=0,
+            average_accuracy=0.0,
+            popular_levels=[],
+            recent_registrations=[]
+        )
 
 @router.get("/users", response_model=List[UserResponse])
 def get_all_users(

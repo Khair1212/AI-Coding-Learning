@@ -20,14 +20,17 @@ const Input: React.FC<InputProps> = ({
 }) => {
   const inputStyle = {
     width: '100%',
-    padding: '12px 16px',
+    padding: '12px 20px',  // Match button padding (lg size: 12px 20px)
     border: `1px solid ${theme.colors.border}`,
     borderRadius: theme.borderRadius.md,
     fontSize: '16px',
     backgroundColor: theme.colors.surface,
     color: theme.colors.text,
     transition: 'all 0.2s ease-in-out',
-    outline: 'none'
+    outline: 'none',
+    boxSizing: 'border-box' as const,  // Ensure consistent box model
+    fontFamily: 'inherit',  // Ensure font consistency
+    lineHeight: '1.5'  // Better text alignment
   };
 
   const labelStyle = {
@@ -38,8 +41,13 @@ const Input: React.FC<InputProps> = ({
     color: theme.colors.text
   };
 
+  const containerStyle = {
+    marginBottom: '16px',
+    width: '100%'  // Ensure container takes full width
+  };
+
   return (
-    <div style={{ marginBottom: '16px' }}>
+    <div style={containerStyle}>
       {label && <label style={labelStyle}>{label}</label>}
       <input
         type={type}

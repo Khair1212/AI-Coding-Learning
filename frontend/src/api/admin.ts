@@ -11,9 +11,30 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+    console.log('🔑 Admin API request with token:', config.url);
+  } else {
+    console.log('⚠️ No token found for admin API request:', config.url);
   }
   return config;
 });
+
+// Add response interceptor for better error logging
+api.interceptors.response.use(
+  (response) => {
+    console.log('✅ Admin API success:', response.config.url, response.status);
+    return response;
+  },
+  (error) => {
+    console.error('❌ Admin API error:', {
+      url: error.config?.url,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      message: error.message
+    });
+    return Promise.reject(error);
+  }
+);
 
 export interface AdminStats {
   total_users: number;
