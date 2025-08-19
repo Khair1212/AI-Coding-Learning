@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.models.user import User, UserRole
-from app.api.schemas import UserCreate, UserLogin, UserResponse, Token
+from app.api.schemas import UserCreate, UserLogin, UserResponse, Token, ForgotPasswordRequest, ResetPasswordRequest
 from app.api.deps import get_current_user, get_current_admin_user
 from app.core.config import settings
 
@@ -84,3 +84,29 @@ def create_admin(
     db.refresh(db_user)
     
     return db_user
+
+@router.post("/forgot-password")
+def forgot_password(request: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == request.email).first()
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail="User with this email does not exist"
+        )
+    
+    return {"message": "User found. You can now reset the password."}
+
+@router.post("/reset-password")
+def reset_password(request: ResetPasswordRequest, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.email == request.email).first()
+    if not db_user:
+        raise HTTPException(
+            status_code=404,
+            detail="User with this email does not exist"
+        )
+    
+    hashed_password = get_password_hash(request.new_password)
+    db_user.hashed_password = hashed_password
+    db.commit()
+    
+    return {"message": "Password has been reset successfully"}

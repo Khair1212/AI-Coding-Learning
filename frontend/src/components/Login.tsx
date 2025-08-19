@@ -124,6 +124,12 @@ const Login: React.FC = () => {
         </form>
         
         <div style={linkStyle}>
+          <Link to="/forgot-password" style={linkTextStyle}>
+            Forgot your password?
+          </Link>
+        </div>
+        
+        <div style={linkStyle}>
           Don't have an account?{' '}
           <Link to="/register" style={linkTextStyle}>
             Create one here

@@ -115,3 +115,10 @@ class GenerateQuestionRequest(BaseModel):
     topic: str
     difficulty: DifficultyLevel
     question_type: LessonType
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    new_password: str
