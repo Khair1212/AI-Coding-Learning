@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { learningAPI, UserProfile as UserProfileType } from '../api/learning';
+import { subscriptionAPI, UserLimits } from '../api/subscription';
 import { theme } from '../styles/theme';
 
 interface Achievement {
@@ -15,6 +16,7 @@ const UserProfile: React.FC = () => {
   const { user } = useAuth();
   const [profile, setProfile] = useState<UserProfileType | null>(null);
   const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [subscription, setSubscription] = useState<UserLimits | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -23,17 +25,49 @@ const UserProfile: React.FC = () => {
 
   const fetchProfileData = async () => {
     try {
-      const [profileData, achievementsData] = await Promise.all([
+      const [profileData, achievementsData, subscriptionData] = await Promise.all([
         learningAPI.getProfile(),
-        learningAPI.getAchievements()
+        learningAPI.getAchievements(),
+        subscriptionAPI.checkLimits().catch(() => null) // Don't fail if subscription data unavailable
       ]);
       setProfile(profileData);
       setAchievements(achievementsData);
+      setSubscription(subscriptionData);
     } catch (error) {
       console.error('Error fetching profile data:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const getTierConfig = (tier: string) => {
+    const configs = {
+      free: { 
+        icon: '🆓', 
+        color: '#4a5568', 
+        bgColor: '#f7fafc', 
+        name: 'Free', 
+        border: '#e2e8f0',
+        gradient: 'linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%)'
+      },
+      gold: { 
+        icon: '🥇', 
+        color: '#92400e', 
+        bgColor: '#fef3c7', 
+        name: 'Gold', 
+        border: '#fbbf24',
+        gradient: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
+      },
+      premium: { 
+        icon: '💎', 
+        color: '#553c9a', 
+        bgColor: '#f3e8ff', 
+        name: 'Premium', 
+        border: '#a855f7',
+        gradient: 'linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%)'
+      }
+    };
+    return configs[tier as keyof typeof configs] || configs.free;
   };
 
   if (loading) {
@@ -155,13 +189,57 @@ const UserProfile: React.FC = () => {
           <div style={avatarStyle}>
             {user?.username.charAt(0).toUpperCase()}
           </div>
-          <div>
-            <h2 style={{ margin: '0 0 8px 0', color: theme.colors.text }}>
-              {user?.username}
-            </h2>
-            <p style={{ margin: 0, color: theme.colors.textSecondary }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+              <h2 style={{ margin: 0, color: theme.colors.text }}>
+                {user?.username}
+              </h2>
+              {subscription && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '6px 16px',
+                  background: getTierConfig(subscription.subscription_tier).gradient,
+                  color: getTierConfig(subscription.subscription_tier).color,
+                  borderRadius: '24px',
+                  fontSize: '14px',
+                  fontWeight: '700',
+                  textTransform: 'uppercase',
+                  border: `2px solid ${getTierConfig(subscription.subscription_tier).border}`,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={() => window.location.href = '/subscription/manage'}
+                >
+                  <span style={{ fontSize: '16px' }}>{getTierConfig(subscription.subscription_tier).icon}</span>
+                  {getTierConfig(subscription.subscription_tier).name} USER
+                </div>
+              )}
+            </div>
+            <p style={{ margin: 0, color: theme.colors.textSecondary, fontSize: '16px' }}>
               Level {profile.current_level} C Programmer
             </p>
+            {subscription && (
+              <div style={{
+                marginTop: '8px',
+                padding: '8px 12px',
+                background: getTierConfig(subscription.subscription_tier).bgColor,
+                borderRadius: '8px',
+                border: `1px solid ${getTierConfig(subscription.subscription_tier).border}40`,
+                fontSize: '13px',
+                color: getTierConfig(subscription.subscription_tier).color,
+                fontWeight: '500'
+              }}>
+                🎯 {subscription.subscription_tier === 'premium' ? 
+                  'You have full access to all premium features!' :
+                  subscription.subscription_tier === 'gold' ? 
+                  'Enjoying Gold benefits! Consider upgrading to Premium for more features.' :
+                  'Upgrade to unlock advanced features and unlimited access!'
+                }
+              </div>
+            )}
           </div>
         </div>
 

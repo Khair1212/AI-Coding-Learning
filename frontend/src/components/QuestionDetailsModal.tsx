@@ -68,6 +68,11 @@ const QuestionDetailsModal: React.FC<QuestionDetailsModalProps> = ({
   const parseOptions = (optionsStr: string | undefined) => {
     if (!optionsStr) return [];
     try {
+      // Try pipe-separated format first
+      if (optionsStr.includes('|')) {
+        return optionsStr.split('|').map(opt => opt.trim());
+      }
+      // Fallback to JSON parsing for backward compatibility
       return JSON.parse(optionsStr);
     } catch {
       return [];

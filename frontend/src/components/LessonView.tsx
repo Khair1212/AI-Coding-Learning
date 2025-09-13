@@ -252,18 +252,23 @@ const LessonView: React.FC = () => {
 
   const renderQuestionInput = () => {
     if (currentQuestion.question_type === 'multiple_choice' && currentQuestion.options) {
-      const options = JSON.parse(currentQuestion.options);
+      // Parse pipe-separated options instead of JSON
+      const options = currentQuestion.options.split('|').map(opt => opt.trim());
       return (
         <div style={optionsStyle}>
-          {options.map((option: string, index: number) => (
-            <div
-              key={index}
-              style={optionButtonStyle(userAnswer === option)}
-              onClick={() => setUserAnswer(option)}
-            >
-              {option}
-            </div>
-          ))}
+          {options.map((option: string, index: number) => {
+            const letter = String.fromCharCode(65 + index); // A, B, C, D...
+            const displayOption = `${letter}. ${option}`;
+            return (
+              <div
+                key={index}
+                style={optionButtonStyle(userAnswer === displayOption)}
+                onClick={() => setUserAnswer(displayOption)}
+              >
+                {displayOption}
+              </div>
+            );
+          })}
         </div>
       );
     }

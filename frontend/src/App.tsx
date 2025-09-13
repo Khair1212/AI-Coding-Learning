@@ -8,9 +8,39 @@ import UserDashboard from './components/UserDashboard';
 import AdminDashboard from './components/AdminDashboard';
 import LessonView from './components/LessonView';
 import SkillAssessment from './components/SkillAssessment';
+import SubscriptionPlans from './components/SubscriptionPlans';
+import SubscriptionManage from './components/SubscriptionManage';
+import PaymentSuccess from './components/PaymentSuccess';
+import PaymentFailed from './components/PaymentFailed';
+import PaymentCancelled from './components/PaymentCancelled';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
+  
+  // If we have a token but no user yet, show loading
+  if (token && !user) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center', 
+        height: '100vh',
+        flexDirection: 'column'
+      }}>
+        <div style={{ 
+          width: '40px', 
+          height: '40px', 
+          border: '4px solid #e2e8f0', 
+          borderTop: '4px solid #3b82f6',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite',
+          marginBottom: '16px'
+        }}></div>
+        <p>Loading user data...</p>
+      </div>
+    );
+  }
+  
   return user ? <>{children}</> : <Navigate to="/login" />;
 };
 
@@ -49,6 +79,46 @@ function App() {
               element={
                 <ProtectedRoute>
                   <SkillAssessment />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/subscription/plans" 
+              element={
+                <ProtectedRoute>
+                  <SubscriptionPlans />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/subscription/manage" 
+              element={
+                <ProtectedRoute>
+                  <SubscriptionManage />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/subscription/success" 
+              element={
+                <ProtectedRoute>
+                  <PaymentSuccess />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/subscription/failed" 
+              element={
+                <ProtectedRoute>
+                  <PaymentFailed />
+                </ProtectedRoute>
+              } 
+            />
+            <Route 
+              path="/subscription/cancel" 
+              element={
+                <ProtectedRoute>
+                  <PaymentCancelled />
                 </ProtectedRoute>
               } 
             />

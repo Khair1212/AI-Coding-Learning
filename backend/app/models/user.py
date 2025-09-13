@@ -21,3 +21,6 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     profile = relationship("UserProfile", back_populates="user", uselist=False)
+    subscription = relationship("Subscription", back_populates="user", uselist=False)
+    payments = relationship("Payment", back_populates="user")
+    usage_records = relationship("UserUsage", back_populates="user")

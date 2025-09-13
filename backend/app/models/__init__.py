@@ -9,3 +9,7 @@ from .quiz import (
     Quiz, QuizType, QuizDifficultyLevel, PersonalizedQuizAssignment,
     UserQuizAttempt, UserQuizResponse, QuizRecommendation, quiz_questions
 )
+from .subscription import (
+    Subscription, Payment, SubscriptionPlan, UserUsage,
+    SubscriptionTier, PaymentStatus
+)

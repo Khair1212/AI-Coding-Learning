@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { learningAPI, Level, Lesson } from '../api/learning';
+import SubscriptionStatus from './SubscriptionStatus';
 import { theme } from '../styles/theme';
 
 const LessonMap: React.FC = () => {
@@ -228,6 +229,8 @@ const LessonMap: React.FC = () => {
           Master C programming through interactive lessons and coding exercises
         </p>
       </div>
+
+      <SubscriptionStatus />
 
       {/* Level Selection */}
       <div style={levelsContainerStyle}>
