@@ -276,19 +276,27 @@ const SkillAssessment: React.FC = () => {
 
           {currentQuestion.question_type === 'multiple_choice' && currentQuestion.options ? (
             <div style={optionsContainerStyle}>
-              {currentQuestion.options.split('|').map((option: string, index: number) => {
-                const letter = String.fromCharCode(65 + index); // A, B, C, D...
-                const displayOption = `${letter}. ${option.trim()}`;
-                return (
-                  <button
-                    key={index}
-                    style={optionButtonStyle(currentAnswer === displayOption)}
-                    onClick={() => setCurrentAnswer(displayOption)}
-                  >
-                  {displayOption}
-                  </button>
-                );
-              })}
+              {(() => {
+                try {
+                  const options = JSON.parse(currentQuestion.options);
+                  return options.map((option: string, index: number) => {
+                    const letter = String.fromCharCode(65 + index); // A, B, C, D...
+                    const displayOption = `${letter}. ${option.trim()}`;
+                    return (
+                      <button
+                        key={index}
+                        style={optionButtonStyle(currentAnswer === displayOption)}
+                        onClick={() => setCurrentAnswer(displayOption)}
+                      >
+                        {displayOption}
+                      </button>
+                    );
+                  });
+                } catch (error) {
+                  console.error('Error parsing options:', error);
+                  return <div>Error loading options</div>;
+                }
+              })()}
             </div>
           ) : (
             <input
