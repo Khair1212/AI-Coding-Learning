@@ -17,10 +17,103 @@ from app.api.schemas import (
 from app.services.ai_service import AIQuestionGenerator, LessonContentGenerator
 from app.services.ai_quiz_assignment_service import AIQuizAssignmentService
 from app.services.intelligent_question_service import IntelligentQuestionSelectionService
+from app.services.subscription_service import SubscriptionService
+from app.services.code_execution_service import CodeExecutionService
+import re
 
 router = APIRouter()
 ai_generator = AIQuestionGenerator()
 content_generator = LessonContentGenerator()
+code_execution_service = CodeExecutionService()
+
+def normalize_code(code_str):
+    """Normalize code by removing extra whitespace and standardizing quotes"""
+    if not code_str:
+        return ""
+    
+    # Remove markdown code blocks
+    code_str = re.sub(r'```[a-zA-Z]*\n?', '', code_str)
+    code_str = re.sub(r'```', '', code_str)
+    
+    # Normalize whitespace
+    code_str = re.sub(r'\s+', ' ', code_str.strip())
+    
+    # Standardize quotes - convert single quotes to double quotes in printf statements
+    code_str = re.sub(r'printf\s*\(\s*\'([^\']*)\'\s*\)', r'printf("\1")', code_str)
+    
+    return code_str.lower()
+
+def evaluate_answer(user_answer, correct_answer, question_type, test_cases=None):
+    """Evaluate user answer with improved logic for different question types"""
+    
+    if question_type.value == 'multiple_choice':
+        # For multiple choice, handle both letter format (A, B, C) and full text format
+        user_clean = user_answer.strip()
+        correct_clean = correct_answer.strip()
+        
+        # If user sent full option text like "A. Some text", extract just the letter
+        if '. ' in user_clean and len(user_clean) > 2:
+            # Extract the letter from "A. Some text" format
+            user_letter = user_clean.split('.')[0].strip().upper()
+        else:
+            # User sent just the letter like "A" or "a"
+            user_letter = user_clean.upper()
+        
+        # Expected answer should be just the letter
+        expected_letter = correct_clean.upper()
+        
+        return user_letter == expected_letter
+    
+    elif question_type.value == 'fill_in_blank':
+        # For fill in blank, remove quotes and do exact match
+        user_clean = user_answer.strip().lower().strip('"').strip("'")
+        correct_clean = correct_answer.strip().lower().strip('"').strip("'")
+        return user_clean == correct_clean
+    
+    elif question_type.value == 'coding_exercise':
+        # NEW: Use output-based evaluation for coding exercises
+        if test_cases:
+            try:
+                is_correct, results = code_execution_service.evaluate_code_exercise(user_answer, test_cases)
+                print(f"Code execution result: {is_correct}, details: {results}")
+                return is_correct
+            except Exception as e:
+                print(f"Code execution failed, falling back to pattern matching: {e}")
+                # Fall back to the old method if execution fails
+                pass
+        
+        # FALLBACK: For coding exercises without test cases, use enhanced pattern matching
+        user_normalized = normalize_code(user_answer)
+        correct_normalized = normalize_code(correct_answer)
+        
+        # Check if the normalized code matches
+        if user_normalized == correct_normalized:
+            return True
+        
+        # Additional checks for common variations
+        # Check if user code contains essential elements
+        essential_checks = [
+            'printf' in user_normalized,
+            'return 0' in user_normalized or 'return0' in user_normalized,
+            'main()' in user_normalized or 'main(' in user_normalized,
+            '#include' in user_normalized
+        ]
+        
+        # If it's a simple program, check for key elements
+        if 'hello' in correct_normalized and 'world' in correct_normalized:
+            return ('hello' in user_normalized and 'world' in user_normalized and 
+                    'printf' in user_normalized and ('return 0' in user_normalized or 'return0' in user_normalized))
+        
+        # For addition programs
+        if 'scanf' in correct_normalized and 'sum' in correct_normalized:
+            return ('scanf' in user_normalized and 'printf' in user_normalized and 
+                    ('sum' in user_normalized or '+' in user_normalized))
+        
+        return False
+    
+    else:
+        # Default to exact match for other types
+        return user_answer.strip().lower() == correct_answer.strip().lower()
 
 @router.get("/profile", response_model=UserProfileResponse)
 def get_user_profile(
@@ -60,6 +153,17 @@ def get_level_lessons(
     db: Session = Depends(get_db)
 ):
     """Get lessons for a specific level with user progress"""
+    # Check subscription access
+    level = db.query(Level).filter(Level.id == level_id).first()
+    if not level:
+        raise HTTPException(status_code=404, detail="Level not found")
+    
+    if not SubscriptionService.can_access_level(int(current_user.id), level.level_number, db):
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Upgrade your subscription to access Level {level.level_number}. Free users can access levels 1-3 only."
+        )
+    
     lessons = db.query(Lesson).filter(
         Lesson.level_id == level_id,
         Lesson.is_active == True
@@ -91,6 +195,14 @@ def get_lesson_questions(
     current_user: User = Depends(get_current_user)
 ):
     """Get personalized questions for a specific lesson based on user's skill assessment"""
+    # Check daily question limit
+    question_check = SubscriptionService.can_attempt_question(current_user.id, db)
+    if not question_check['allowed']:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Daily question limit reached ({question_check['used']}/{question_check['limit']}). Upgrade your subscription for more questions."
+        )
+    
     # Use intelligent question selection
     intelligent_service = IntelligentQuestionSelectionService(db)
     
@@ -146,8 +258,11 @@ def submit_answer(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
     
-    # Check if answer is correct (for coding exercises, simple exact match for now)
-    is_correct = submission.answer.strip().lower() == question.correct_answer.strip().lower()
+    # Record usage for subscription limits
+    SubscriptionService.record_usage(current_user.id, 'question', db)
+    
+    # Check if answer is correct with better evaluation logic
+    is_correct = evaluate_answer(submission.answer, question.correct_answer, question.question_type, question.test_cases)
     
     # Get or create user profile
     profile = db.query(UserProfile).filter(UserProfile.user_id == current_user.id).first()
@@ -284,9 +399,20 @@ def get_user_achievements(
 @router.post("/questions/generate")
 def generate_question(
     request: GenerateQuestionRequest,
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
-    """Generate AI question (admin only for now)"""
+    """Generate AI question"""
+    # Check if user has access to AI questions
+    if not SubscriptionService.can_use_ai_questions(current_user.id, db):
+        raise HTTPException(
+            status_code=403,
+            detail="AI-generated questions are available for Gold and Premium subscribers only. Upgrade your subscription to access this feature."
+        )
+    
+    # Record AI question usage
+    SubscriptionService.record_usage(current_user.id, 'ai_question', db)
+    
     try:
         if request.question_type == "multiple_choice":
             return ai_generator.generate_theory_question(request.topic, request.difficulty)

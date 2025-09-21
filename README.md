@@ -91,7 +91,7 @@ A Duolingo-style interactive platform for learning C programming with AI-powered
 3. **Start the development server:**
 
    ```bash
-   0npm start
+   npm start
    ```
 
    Frontend will be available at `http://localhost:3000`
