@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { learningAPI, Level, Lesson } from '../api/learning';
 import SubscriptionStatus from './SubscriptionStatus';
 import { theme } from '../styles/theme';
@@ -48,6 +49,46 @@ const LessonMap: React.FC = () => {
     navigate(`/lesson/${lesson.id}`);
   };
 
+  const handleLevelClick = (level: Level) => {
+    if (level.is_locked) {
+      // Show upgrade prompt for locked levels
+      toast.custom((t) => (
+        <div
+          className={`${
+            t.visible ? 'animate-enter' : 'animate-leave'
+          } max-w-md w-full bg-white shadow-lg rounded-lg pointer-events-auto flex ring-1 ring-black ring-opacity-5`}
+          style={{
+            background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+            color: '#92400e',
+            padding: '20px',
+            borderRadius: '12px',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+            border: '2px solid #f59e0b',
+            maxWidth: '400px',
+          }}
+        >
+          <div className="flex-1">
+            <div style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '8px' }}>
+              🔒 Level {level.level_number} is Locked!
+            </div>
+            <div style={{ fontSize: '14px', lineHeight: '1.5', opacity: 0.9 }}>
+              Upgrade your subscription to unlock all levels.
+              <br />
+              <strong>Free users can access levels 1-3 only.</strong>
+            </div>
+            <div style={{ marginTop: '12px', fontSize: '12px', fontStyle: 'italic' }}>
+              Click to dismiss
+            </div>
+          </div>
+        </div>
+      ), {
+        duration: 5000,
+      });
+      return;
+    }
+    setSelectedLevel(level.id);
+  };
+
   if (loading) {
     return (
       <div style={{ padding: '20px', textAlign: 'center' }}>
@@ -87,18 +128,19 @@ const LessonMap: React.FC = () => {
     marginBottom: '40px'
   };
 
-  const levelButtonStyle = (isSelected: boolean, levelNum: number) => ({
+  const levelButtonStyle = (isSelected: boolean, levelNum: number, isLocked: boolean = false) => ({
     padding: '12px 20px',
     borderRadius: theme.borderRadius.full,
-    border: isSelected ? `2px solid ${theme.colors.primary}` : '2px solid #e9ecef',
-    background: isSelected ? theme.colors.primary : 'white',
-    color: isSelected ? 'white' : theme.colors.text,
-    cursor: 'pointer',
+    border: isSelected ? `2px solid ${theme.colors.primary}` : isLocked ? '2px solid #dee2e6' : '2px solid #e9ecef',
+    background: isSelected ? theme.colors.primary : isLocked ? '#f8f9fa' : 'white',
+    color: isSelected ? 'white' : isLocked ? '#6c757d' : theme.colors.text,
+    cursor: isLocked ? 'not-allowed' : 'pointer',
     fontSize: '14px',
     fontWeight: '600',
     transition: 'all 0.3s ease',
     position: 'relative' as const,
-    minWidth: '100px'
+    minWidth: '100px',
+    opacity: isLocked ? 0.6 : 1
   });
 
   const lessonMapStyle = {
@@ -237,21 +279,25 @@ const LessonMap: React.FC = () => {
         {levels.map((level) => (
           <button
             key={level.id}
-            style={levelButtonStyle(selectedLevel === level.id, level.level_number)}
-            onClick={() => setSelectedLevel(level.id)}
+            style={levelButtonStyle(selectedLevel === level.id, level.level_number, level.is_locked)}
+            onClick={() => handleLevelClick(level)}
             onMouseEnter={(e) => {
-              if (selectedLevel !== level.id) {
+              if (selectedLevel !== level.id && !level.is_locked) {
                 e.currentTarget.style.background = '#f8f9fa';
                 e.currentTarget.style.borderColor = theme.colors.primary;
               }
             }}
             onMouseLeave={(e) => {
-              if (selectedLevel !== level.id) {
+              if (selectedLevel !== level.id && !level.is_locked) {
                 e.currentTarget.style.background = 'white';
                 e.currentTarget.style.borderColor = '#e9ecef';
               }
             }}
+            title={level.is_locked ? `Level ${level.level_number} requires subscription upgrade` : `Level ${level.level_number}: ${level.title}`}
           >
+            {level.is_locked && (
+              <span style={{ marginRight: '6px' }}>🔒</span>
+            )}
             Level {level.level_number}
           </button>
         ))}

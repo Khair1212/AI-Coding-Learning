@@ -39,6 +39,7 @@ class LevelResponse(BaseModel):
     description: Optional[str]
     required_xp: int
     is_active: bool
+    is_locked: Optional[bool] = False  # New field to indicate if level is locked due to subscription
 
     class Config:
         from_attributes = True

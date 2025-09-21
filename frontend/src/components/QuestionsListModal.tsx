@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import Modal from './common/Modal';
 import Button from './common/Button';
 import { theme } from '../styles/theme';
@@ -53,8 +54,11 @@ const QuestionsListModal: React.FC<QuestionsListModalProps> = ({
       setQuestions(questions.filter(q => q.id !== questionId));
       setDeleteConfirmId(null);
       onDeleteQuestion(questionId);
+      toast.success('Question deleted successfully');
     } catch (error) {
       console.error('Error deleting question:', error);
+      toast.error('Failed to delete question. Please try again.');
+      setDeleteConfirmId(null);
     }
   };
 

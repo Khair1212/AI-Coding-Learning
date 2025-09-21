@@ -22,6 +22,7 @@ export interface Level {
   description: string;
   required_xp: number;
   is_active: boolean;
+  is_locked?: boolean;  // New field for subscription-based locking
 }
 
 export interface Lesson {

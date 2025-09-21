@@ -47,22 +47,20 @@ def evaluate_answer(user_answer, correct_answer, question_type, test_cases=None)
     """Evaluate user answer with improved logic for different question types"""
     
     if question_type.value == 'multiple_choice':
-        # For multiple choice, handle both letter format (A, B, C) and full text format
+        # For multiple choice, match the full text of the selected option
         user_clean = user_answer.strip()
         correct_clean = correct_answer.strip()
         
-        # If user sent full option text like "A. Some text", extract just the letter
+        # If user sent full option text like "A. Some text", extract the text part
         if '. ' in user_clean and len(user_clean) > 2:
-            # Extract the letter from "A. Some text" format
-            user_letter = user_clean.split('.')[0].strip().upper()
+            # Extract the text from "A. Some text" format
+            user_text = '. '.join(user_clean.split('. ')[1:]).strip()
         else:
-            # User sent just the letter like "A" or "a"
-            user_letter = user_clean.upper()
+            # User sent just the text
+            user_text = user_clean
         
-        # Expected answer should be just the letter
-        expected_letter = correct_clean.upper()
-        
-        return user_letter == expected_letter
+        # Compare the actual text content (case-insensitive)
+        return user_text.lower() == correct_clean.lower()
     
     elif question_type.value == 'fill_in_blank':
         # For fill in blank, remove quotes and do exact match
@@ -141,10 +139,29 @@ def get_user_profile(
     return profile
 
 @router.get("/levels", response_model=List[LevelResponse])
-def get_levels(db: Session = Depends(get_db)):
-    """Get all available levels"""
-    levels = db.query(Level).filter(Level.is_active == True).order_by(Level.level_number).all()
-    return levels
+def get_levels(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all levels with lock status based on user's subscription"""
+    all_levels = db.query(Level).filter(Level.is_active == True).order_by(Level.level_number).all()
+    
+    # Add lock status to each level based on subscription access
+    levels_with_lock_status = []
+    for level in all_levels:
+        # Create a dict from the level object and add is_locked field
+        level_dict = {
+            "id": level.id,
+            "level_number": level.level_number,
+            "title": level.title,
+            "description": level.description,
+            "required_xp": level.required_xp,
+            "is_active": level.is_active,
+            "is_locked": not SubscriptionService.can_access_level(int(current_user.id), level.level_number, db)
+        }
+        levels_with_lock_status.append(level_dict)
+    
+    return levels_with_lock_status
 
 @router.get("/levels/{level_id}/lessons", response_model=List[LessonResponse])
 def get_level_lessons(
@@ -195,6 +212,22 @@ def get_lesson_questions(
     current_user: User = Depends(get_current_user)
 ):
     """Get personalized questions for a specific lesson based on user's skill assessment"""
+    # First, check if the lesson exists and get its level
+    lesson = db.query(Lesson).filter(Lesson.id == lesson_id).first()
+    if not lesson:
+        raise HTTPException(status_code=404, detail="Lesson not found")
+    
+    level = db.query(Level).filter(Level.id == lesson.level_id).first()
+    if not level:
+        raise HTTPException(status_code=404, detail="Level not found")
+    
+    # Check subscription access to the level
+    if not SubscriptionService.can_access_level(int(current_user.id), level.level_number, db):
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Upgrade your subscription to access Level {level.level_number}. Free users can access levels 1-3 only."
+        )
+    
     # Check daily question limit
     question_check = SubscriptionService.can_attempt_question(current_user.id, db)
     if not question_check['allowed']:
@@ -657,8 +690,8 @@ def submit_quiz_response(
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
     
-    # Check if answer is correct
-    is_correct = answer.strip().lower() == question.correct_answer.strip().lower()
+    # Check if answer is correct using the evaluate_answer function
+    is_correct = evaluate_answer(answer, question.correct_answer, question.question_type, question.test_cases)
     
     # Store response
     response = UserQuizResponse(

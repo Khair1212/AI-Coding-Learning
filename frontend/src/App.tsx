@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -124,6 +125,61 @@ function App() {
             />
             <Route path="/" element={<Navigate to="/dashboard" />} />
           </Routes>
+          
+          {/* Toast notification container */}
+          <Toaster
+            position="top-right"
+            reverseOrder={false}
+            gutter={8}
+            containerClassName=""
+            containerStyle={{}}
+            toastOptions={{
+              // Define default options
+              className: '',
+              duration: 2000,
+              style: {
+                background: '#363636',
+                color: '#fff',
+                fontWeight: '600',
+                borderRadius: '12px',
+                padding: '16px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+                cursor: 'pointer',
+              },
+              // Default options for specific types
+              success: {
+                duration: 2000,
+                style: {
+                  background: '#10b981',
+                  color: '#fff',
+                  cursor: 'pointer',
+                },
+                iconTheme: {
+                  primary: '#fff',
+                  secondary: '#10b981',
+                },
+              },
+              error: {
+                duration: 2000,
+                style: {
+                  background: '#ef4444',
+                  color: '#fff',
+                  cursor: 'pointer',
+                },
+                iconTheme: {
+                  primary: '#fff',
+                  secondary: '#ef4444',
+                },
+              },
+              loading: {
+                duration: Infinity,
+                style: {
+                  background: '#3b82f6',
+                  color: '#fff',
+                },
+              },
+            }}
+          />
         </div>
       </Router>
     </AuthProvider>

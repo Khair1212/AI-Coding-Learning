@@ -136,7 +136,19 @@ def submit_assessment(
         if not question:
             continue
         
-        is_correct = answer.answer.strip().lower() == question.correct_answer.strip().lower()
+        # Handle multiple choice answers that may include letter prefixes
+        user_answer = answer.answer.strip()
+        correct_answer = question.correct_answer.strip()
+        
+        # If user sent full option text like "A. Some text", extract the text part
+        if '. ' in user_answer and len(user_answer) > 2:
+            # Extract the text from "A. Some text" format
+            user_text = '. '.join(user_answer.split('. ')[1:]).strip()
+        else:
+            # User sent just the text
+            user_text = user_answer
+        
+        is_correct = user_text.lower() == correct_answer.lower()
         if is_correct:
             correct_count += 1
         

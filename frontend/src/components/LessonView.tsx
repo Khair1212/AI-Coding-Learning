@@ -252,8 +252,15 @@ const LessonView: React.FC = () => {
 
   const renderQuestionInput = () => {
     if (currentQuestion.question_type === 'multiple_choice' && currentQuestion.options) {
-      // Parse pipe-separated options instead of JSON
-      const options = currentQuestion.options.split('|').map(opt => opt.trim());
+      // Parse JSON options (backend stores them as JSON arrays)
+      let options: string[] = [];
+      try {
+        options = JSON.parse(currentQuestion.options);
+      } catch (error) {
+        console.error('Error parsing options:', error);
+        // Fallback to pipe-separated format for backward compatibility
+        options = currentQuestion.options.split('|').map(opt => opt.trim());
+      }
       return (
         <div style={optionsStyle}>
           {options.map((option: string, index: number) => {

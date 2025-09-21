@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { theme } from '../styles/theme';
 import { adminAPI, AdminStats, AdminUser, LevelWithLessons, AdminQuestion, CreateQuestionRequest, Achievement } from '../api/admin';
@@ -134,8 +135,25 @@ const AdminDashboard: React.FC = () => {
   };
 
   const deleteQuestion = async (questionId: number) => {
-    // Reload levels to update question counts
-    loadLevels();
+    console.log(`Starting to delete question ${questionId}`);
+    try {
+      const response = await adminAPI.deleteQuestion(questionId);
+      console.log('Delete question response:', response);
+      toast.success(response.message || 'Question deleted successfully');
+      // Reload levels to update question counts
+      loadLevels();
+      // Close the question details modal if it's open
+      setShowQuestionDetailsModal(false);
+      setSelectedQuestion(null);
+    } catch (error: any) {
+      console.error('Error deleting question:', error);
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status
+      });
+      toast.error(`Failed to delete question: ${error.response?.data?.detail || error.message || 'Unknown error'}`);
+    }
   };
 
   const handleQuestionAdded = () => {

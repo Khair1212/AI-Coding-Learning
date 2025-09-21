@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, desc
+from sqlalchemy import func, desc, select, delete
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
 
@@ -8,8 +8,10 @@ from app.core.database import get_db
 from app.api.deps import get_current_admin_user
 from app.models import (
     User, UserProfile, Level, Lesson, Question, UserLessonProgress,
-    UserAssessment, Achievement, UserAchievement, AssessmentQuestion, LessonType
+    UserAssessment, Achievement, UserAchievement, AssessmentQuestion, LessonType,
+    UserLessonAnswer
 )
+from app.models.quiz import quiz_questions, UserQuizResponse
 from app.api.schemas import UserResponse
 from app.services.ai_service import AIQuestionGenerator
 from pydantic import BaseModel
@@ -267,14 +269,75 @@ def delete_question(
     admin: User = Depends(get_current_admin_user),
     db: Session = Depends(get_db)
 ):
-    """Delete a question"""
+    """Delete a question and all related user answers"""
+    
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
     
-    db.delete(question)
-    db.commit()
-    return {"message": "Question deleted successfully"}
+    try:
+        print(f"Starting deletion of question {question_id}")
+        
+        # First, delete all related records to avoid foreign key constraint violations
+        # Use bulk delete operations for better performance and reliability
+        
+        # 1. Delete user lesson answers (bulk delete)
+        print("Deleting user lesson answers...")
+        user_answer_count = db.execute(
+            delete(UserLessonAnswer).where(UserLessonAnswer.question_id == question_id)
+        ).rowcount
+        print(f"Deleted {user_answer_count} user lesson answers")
+        db.flush()  # Ensure this operation completes before proceeding
+        
+        # 2. Delete user quiz responses (bulk delete)
+        print("Deleting user quiz responses...")
+        quiz_response_count = db.execute(
+            delete(UserQuizResponse).where(UserQuizResponse.question_id == question_id)
+        ).rowcount
+        print(f"Deleted {quiz_response_count} user quiz responses")
+        db.flush()  # Ensure this operation completes before proceeding
+        
+        # 3. Delete quiz-question associations (bulk delete)
+        print("Deleting quiz-question associations...")
+        quiz_association_count = db.execute(
+            quiz_questions.delete().where(quiz_questions.c.question_id == question_id)
+        ).rowcount
+        print(f"Deleted {quiz_association_count} quiz associations")
+        db.flush()  # Ensure this operation completes before proceeding
+        
+        # 4. Finally, delete the question itself
+        print("Deleting the question...")
+        db.delete(question)
+        db.flush()  # Ensure question deletion is prepared
+        
+        # Commit all changes
+        print("Committing transaction...")
+        db.commit()
+        print("Transaction committed successfully")
+        
+        # Build success message with details
+        message = "Question deleted successfully"
+        details = []
+        if user_answer_count > 0:
+            details.append(f"{user_answer_count} user answer records")
+        if quiz_response_count > 0:
+            details.append(f"{quiz_response_count} quiz response records")
+        if quiz_association_count > 0:
+            details.append(f"{quiz_association_count} quiz associations")
+        
+        if details:
+            message += f" (also removed {', '.join(details)})"
+        
+        print(f"Returning success message: {message}")
+        return {"message": message}
+        
+    except Exception as e:
+        print(f"Error during deletion: {str(e)}")
+        print(f"Error type: {type(e)}")
+        import traceback
+        print(f"Traceback: {traceback.format_exc()}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete question: {str(e)}")
 
 @router.post("/questions/generate-ai")
 def generate_ai_question(

@@ -21,9 +21,17 @@ class AIQuestionGenerator:
         
         Return a JSON object with:
         - question_text: The question
-        - options: Array of 4 options (A, B, C, D)
-        - correct_answer: The correct option letter
+        - options: Array of 4 answer choices (just the text, no letters)
+        - correct_answer: The exact text of the correct option
         - explanation: Brief explanation of the correct answer
+        
+        Example format:
+        {{
+            "question_text": "What does printf() do in C?",
+            "options": ["Prints text to console", "Reads user input", "Allocates memory", "Includes header files"],
+            "correct_answer": "Prints text to console",
+            "explanation": "printf() is used to print formatted text to the console output."
+        }}
         
         Make it educational and engaging like Duolingo.
         """
